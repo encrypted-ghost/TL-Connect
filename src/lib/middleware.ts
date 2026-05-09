@@ -1,9 +1,12 @@
 import { NextFunction, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+
 const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SECRET_KEY || '',
+  supabaseUrl,
+  supabaseKey,
   {
     db: { schema: 'connect' }
   }

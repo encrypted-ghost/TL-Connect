@@ -13,7 +13,7 @@ interface DataTableProps<T> {
 }
 
 export function DataTable<T extends Record<string, any>>({ columns, data, emptyState }: DataTableProps<T>) {
-  if (data.length === 0 && emptyState) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
     return <>{emptyState}</>;
   }
 

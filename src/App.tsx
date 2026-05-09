@@ -103,8 +103,8 @@ export default function App() {
         <div className="px-6 py-10 flex flex-col items-start gap-4">
           <div className="relative group cursor-pointer" onClick={() => setCurrentView('dashboard')}>
             <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl blur opacity-20 group-hover:opacity-60 transition duration-1000"></div>
-            <div className="relative w-12 h-12 rounded-xl bg-[#111114] border border-neutral-800 flex items-center justify-center shadow-2xl group-hover:border-indigo-500/50 transition-colors">
-              <ShieldCheck className="text-indigo-400 group-hover:text-indigo-300 transition-colors" size={26} />
+            <div className="relative w-16 h-16 rounded-xl flex items-center justify-center p-1 transition-colors">
+              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
           </div>
           <div className="flex flex-col space-y-0.5">

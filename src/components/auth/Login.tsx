@@ -42,8 +42,8 @@ export function Login() {
         <div className="flex flex-col items-center text-center space-y-6">
           <div className="relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
-            <div className="relative w-16 h-16 rounded-2xl bg-[#09090b] border border-neutral-800 flex items-center justify-center shadow-2xl">
-              <ShieldCheck size={32} className="text-indigo-500 animate-in zoom-in duration-500" />
+            <div className="relative w-20 h-20 rounded-2xl bg-[#09090b] flex items-center justify-center p-1">
+              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain animate-in zoom-in duration-500" />
             </div>
             <div className="absolute -top-1 -right-1 flex h-4 w-4">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>

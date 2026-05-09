@@ -1,19 +1,17 @@
 -- TL Connect System Schema
--- Targeted Schema: connect
-
-CREATE SCHEMA IF NOT EXISTS "connect";
+-- Targeted Schema: public
 
 -- Enums
-CREATE TYPE "connect"."Role" AS ENUM ('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'AGENT', 'VIEWER');
-CREATE TYPE "connect"."UserStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'PENDING');
-CREATE TYPE "connect"."LeadStatus" AS ENUM ('NEW', 'TO_CONTACT', 'SENT', 'OPENED', 'CLICKED', 'REPLIED', 'INTERESTED', 'MEETING_BOOKED', 'CLOSED_WON', 'CLOSED_LOST', 'BOUNCED', 'UNSUBSCRIBED');
-CREATE TYPE "connect"."CampaignStatus" AS ENUM ('DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED', 'COMPLETED', 'FAILED');
-CREATE TYPE "connect"."JobStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
-CREATE TYPE "connect"."ActivityType" AS ENUM ('EMAIL_SENT', 'EMAIL_OPENED', 'EMAIL_CLICKED', 'EMAIL_REPLIED', 'EMAIL_BOUNCED', 'LEAD_CREATED', 'LEAD_STATUS_CHANGED', 'NOTE_ADDED', 'MEETING_BOOKED');
+CREATE TYPE "Role" AS ENUM ('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'AGENT', 'VIEWER');
+CREATE TYPE "UserStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'PENDING');
+CREATE TYPE "LeadStatus" AS ENUM ('NEW', 'TO_CONTACT', 'SENT', 'OPENED', 'CLICKED', 'REPLIED', 'INTERESTED', 'MEETING_BOOKED', 'CLOSED_WON', 'CLOSED_LOST', 'BOUNCED', 'UNSUBSCRIBED');
+CREATE TYPE "CampaignStatus" AS ENUM ('DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED', 'COMPLETED', 'FAILED');
+CREATE TYPE "JobStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+CREATE TYPE "ActivityType" AS ENUM ('EMAIL_SENT', 'EMAIL_OPENED', 'EMAIL_CLICKED', 'EMAIL_REPLIED', 'EMAIL_BOUNCED', 'LEAD_CREATED', 'LEAD_STATUS_CHANGED', 'NOTE_ADDED', 'MEETING_BOOKED');
 
 -- Tables
 
-CREATE TABLE "connect"."Workspace" (
+CREATE TABLE "Workspace" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
@@ -23,7 +21,7 @@ CREATE TABLE "connect"."Workspace" (
     CONSTRAINT "Workspace_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "connect"."WorkspaceSettings" (
+CREATE TABLE "WorkspaceSettings" (
     "id" TEXT NOT NULL,
     "workspaceId" TEXT NOT NULL,
     "emailDailyLimit" INTEGER NOT NULL DEFAULT 1000,
@@ -33,14 +31,14 @@ CREATE TABLE "connect"."WorkspaceSettings" (
     CONSTRAINT "WorkspaceSettings_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "connect"."User" (
+CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "name" TEXT,
     "passwordHash" TEXT NOT NULL,
     "avatarUrl" TEXT,
-    "role" "connect"."Role" NOT NULL DEFAULT 'AGENT',
-    "status" "connect"."UserStatus" NOT NULL DEFAULT 'ACTIVE',
+    "role" "Role" NOT NULL DEFAULT 'AGENT',
+    "status" "UserStatus" NOT NULL DEFAULT 'ACTIVE',
     "workspaceId" TEXT NOT NULL,
     "lastLoginAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -48,7 +46,7 @@ CREATE TABLE "connect"."User" (
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "connect"."Company" (
+CREATE TABLE "Company" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "website" TEXT,
@@ -61,7 +59,7 @@ CREATE TABLE "connect"."Company" (
     CONSTRAINT "Company_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "connect"."Lead" (
+CREATE TABLE "Lead" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "firstName" TEXT,
@@ -69,7 +67,7 @@ CREATE TABLE "connect"."Lead" (
     "title" TEXT,
     "phone" TEXT,
     "linkedinUrl" TEXT,
-    "status" "connect"."LeadStatus" NOT NULL DEFAULT 'NEW',
+    "status" "LeadStatus" NOT NULL DEFAULT 'NEW',
     "score" INTEGER NOT NULL DEFAULT 0,
     "companyId" TEXT,
     "ownerId" TEXT,
@@ -81,9 +79,9 @@ CREATE TABLE "connect"."Lead" (
     CONSTRAINT "Lead_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "connect"."Activity" (
+CREATE TABLE "Activity" (
     "id" TEXT NOT NULL,
-    "type" "connect"."ActivityType" NOT NULL,
+    "type" "ActivityType" NOT NULL,
     "description" TEXT,
     "metadata" JSONB,
     "userId" TEXT,
@@ -93,7 +91,7 @@ CREATE TABLE "connect"."Activity" (
     CONSTRAINT "Activity_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "connect"."AuditLog" (
+CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
     "action" TEXT NOT NULL,
     "entity" TEXT NOT NULL,
@@ -108,7 +106,7 @@ CREATE TABLE "connect"."AuditLog" (
     CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "connect"."LoginLog" (
+CREATE TABLE "LoginLog" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "email" TEXT NOT NULL,
@@ -120,11 +118,11 @@ CREATE TABLE "connect"."LoginLog" (
 );
 
 -- Unique Constraints & Indexes
-CREATE UNIQUE INDEX "Workspace_slug_key" ON "connect"."Workspace"("slug");
-CREATE UNIQUE INDEX "WorkspaceSettings_workspaceId_key" ON "connect"."WorkspaceSettings"("workspaceId");
-CREATE UNIQUE INDEX "User_email_key" ON "connect"."User"("email");
-CREATE UNIQUE INDEX "Lead_email_workspaceId_key" ON "connect"."Lead"("email", "workspaceId");
+CREATE UNIQUE INDEX "Workspace_slug_key" ON "Workspace"("slug");
+CREATE UNIQUE INDEX "WorkspaceSettings_workspaceId_key" ON "WorkspaceSettings"("workspaceId");
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE UNIQUE INDEX "Lead_email_workspaceId_key" ON "Lead"("email", "workspaceId");
 
 -- Foreign Keys (Examples)
-ALTER TABLE "connect"."User" ADD CONSTRAINT "User_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "connect"."Workspace"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "connect"."Lead" ADD CONSTRAINT "Lead_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "connect"."Workspace"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "User" ADD CONSTRAINT "User_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Lead" ADD CONSTRAINT "Lead_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
