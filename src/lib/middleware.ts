@@ -30,14 +30,15 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     }
 
     // 2. Fetch RBAC profile from Supabase DB
+    const refinedEmail = (sbUser.email || '').toLowerCase().trim();
     const { data: userProfile, error: profileError } = await supabase
       .from('User')
       .select('id, email, role, workspaceId, workspace(name)')
-      .eq('email', sbUser.email || '')
+      .eq('email', refinedEmail)
       .single();
 
-    const adminEmail = process.env.ADMIN_EMAIL;
-    const isSuperAdmin = sbUser.email === adminEmail;
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@transferlegacy.com').toLowerCase().trim();
+    const isSuperAdmin = refinedEmail === adminEmail;
 
     if (!userProfile && !isSuperAdmin) {
       return res.status(403).json({ error: 'Forbidden: No authorized profile found. Please contact an administrator.' });

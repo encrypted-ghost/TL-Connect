@@ -23,56 +23,141 @@ async function startServer() {
 
   // --- BOOTSTRAP ---
   async function bootstrap() {
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@transferlegacy.com';
-    const adminPass = process.env.ADMIN_PASSWORD || 'change-me-immediately';
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@transferlegacy.com').toLowerCase().trim();
+    const adminPass = (process.env.ADMIN_PASSWORD || 'change-me-immediately').trim();
+
+    console.log('[Bootstrap] Starting admin sync...');
+    console.log(`[Bootstrap] Supabase URL: ${process.env.SUPABASE_URL ? 'PRESENT' : 'MISSING'}`);
+    console.log(`[Bootstrap] Supabase Secret: ${process.env.SUPABASE_SECRET_KEY ? 'PRESENT' : 'MISSING'}`);
+    console.log(`[Bootstrap] Target Admin: ${adminEmail}`);
+
+    if (adminPass.length < 6) {
+      console.warn('[Bootstrap] WARNING: Admin password is very short (< 6 chars). Supabase likely requires at least 6.');
+    }
 
     try {
       // 1. Create workspace if none exists
       const { data: workspaces, error: wsError } = await supabaseAdmin.from('Workspace').select('*').limit(1);
+      if (wsError) {
+        console.error('[Bootstrap] Error querying Workspace:', wsError.message);
+      }
       let workspace = workspaces?.[0];
 
       if (!workspace) {
-        const { data, error } = await supabaseAdmin.from('Workspace').insert({
+        console.log('[Bootstrap] Creating default workspace...');
+        const workspaceId = 'default-workspace-id';
+        const { data, error: wsInsertError } = await supabaseAdmin.from('Workspace').insert({
+          id: workspaceId,
           name: 'Transfer Legacy HQ',
           slug: 'tl-hq',
+          updatedAt: new Date().toISOString()
         }).select().single();
         
-        if (error) throw error;
-        workspace = data;
-        console.log('Created default workspace');
+        if (wsInsertError) {
+          console.error('[Bootstrap] Failed to create workspace:', wsInsertError.message);
+          // Try to fallback if it already exists but query missed it
+          const { data: wsData } = await supabaseAdmin.from('Workspace').select('*').eq('slug', 'tl-hq').single();
+          if (wsData) {
+            workspace = wsData;
+          } else {
+            throw wsInsertError;
+          }
+        } else {
+          workspace = data;
+          console.log('[Bootstrap] Created default workspace:', workspace.id);
+        }
       }
 
-      // 2. Check if admin exists
-      const { data: user, error: userError } = await supabaseAdmin.from('User').select('*').eq('email', adminEmail).single();
+      // 2. Ensure Admin in Auth
+      const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+      if (listError) {
+        console.error('[Bootstrap] Failed to list auth users:', listError.message);
+        throw listError;
+      }
       
-      if (!user) {
-        // Create in Supabase Auth
-        const { data: sbUser, error: sbError } = await supabaseAdmin.auth.admin.createUser({
+      const authUser = (users as any[]).find(u => u.email?.toLowerCase() === adminEmail);
+      
+      if (!authUser) {
+        console.log(`[Bootstrap] Admin user ${adminEmail} not found in Auth, creating...`);
+        const { data: { user: sbUser }, error: sbError } = await supabaseAdmin.auth.admin.createUser({
           email: adminEmail,
           password: adminPass,
-          email_confirm: true
+          email_confirm: true,
+          user_metadata: { bootstrapped: true }
         });
 
-        if (sbError && !sbError.message.includes('already exists')) {
-          console.error('Supabase bootstrap error:', sbError);
+        if (sbError) {
+          console.error('[Bootstrap] Supabase auth creation error:', sbError.message);
+          throw sbError;
         }
 
-        const { error: insertError } = await supabaseAdmin.from('User').insert({
-          email: adminEmail,
-          passwordHash: 'SUPABASE_MANAGED',
-          role: 'SUPER_ADMIN',
-          workspaceId: workspace.id,
-          name: 'System Super Admin'
-        });
+        if (sbUser) {
+          const { error: insertError } = await supabaseAdmin.from('User').insert({
+            id: sbUser.id,
+            email: adminEmail,
+            role: 'SUPER_ADMIN',
+            workspaceId: workspace.id,
+            name: 'System Super Admin',
+            passwordHash: 'SB_MANAGED', // Required by schema
+            updatedAt: new Date().toISOString()
+          });
 
-        if (insertError) throw insertError;
-        console.log('Bootstrapped super admin account:', adminEmail);
-      } else if (user.role !== 'SUPER_ADMIN') {
-        // Ensure the env-defined admin is always SUPER_ADMIN
-        await supabaseAdmin.from('User').update({ role: 'SUPER_ADMIN' }).eq('email', adminEmail);
+          if (insertError) {
+            console.error('[Bootstrap] DB insertion error for new admin user:', insertError.message);
+          } else {
+            console.log('[Bootstrap] Successfully bootstrapped super admin Auth and DB record:', adminEmail);
+          }
+        }
+      } else {
+        console.log(`[Bootstrap] Admin user ${adminEmail} exists in Auth ID: ${authUser.id}. Syncing...`);
+        
+        // Sync public User table entry
+        const { data: dbUser, error: dbFetchError } = await supabaseAdmin.from('User').select('*').eq('email', adminEmail).single();
+        
+        if (!dbUser) {
+          console.log(`[Bootstrap] Admin user ${adminEmail} not found in public User table or error: ${dbFetchError?.message}, inserting...`);
+          const { error: insertError } = await supabaseAdmin.from('User').insert({
+            id: authUser.id,
+            email: adminEmail,
+            role: 'SUPER_ADMIN',
+            workspaceId: workspace.id,
+            name: 'System Super Admin',
+            passwordHash: 'SB_MANAGED',
+            updatedAt: new Date().toISOString()
+          });
+          if (insertError) console.error('[Bootstrap] Failed to insert DB record for existing auth user:', insertError.message);
+        } else {
+          console.log(`[Bootstrap] Updating attributes for ${adminEmail} in public User table...`);
+          await supabaseAdmin.from('User').update({ 
+            role: 'SUPER_ADMIN',
+            id: authUser.id,
+            updatedAt: new Date().toISOString()
+          }).eq('email', adminEmail);
+        }
+        
+        // Force update password to match environment
+        console.log(`[Bootstrap] Force-syncing password for ${adminEmail} to the one provided in ADMIN_PASSWORD...`);
+        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+          authUser.id, 
+          { 
+            password: adminPass,
+            email_confirm: true,
+            user_metadata: { 
+              bootstrapped: true, 
+              last_sync: new Date().toISOString(),
+              sync_source: 'server_env'
+            }
+          }
+        );
+        
+        if (updateError) {
+          console.error('[Bootstrap] FAILED to sync admin password:', updateError.message);
+        } else {
+          console.log('[Bootstrap] SUCCESS: Admin credentials synchronized with environment variables.');
+        }
       }
-    } catch (err) {
-      console.error('Bootstrap failed:', err);
+    } catch (err: any) {
+      console.error('[Bootstrap] CRITICAL FAILURE:', err.message || err);
     }
   }
   await bootstrap();

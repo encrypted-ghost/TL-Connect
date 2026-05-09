@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { supabase } from './supabase';
 
 /**
  * Standardized API Client for TL Connect
@@ -10,11 +11,15 @@ export const apiClient = axios.create({
   },
 });
 
-// Auto-inject token from cookie/localStorage if available
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('tl_connect_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// Auto-inject token from Supabase if available
+apiClient.interceptors.request.use(async (config) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      config.headers.Authorization = `Bearer ${session.access_token}`;
+    }
+  } catch (e) {
+    console.error('Error fetching session for API client', e);
   }
   return config;
 });

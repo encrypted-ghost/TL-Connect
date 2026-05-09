@@ -17,12 +17,20 @@ export function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await signIn(email, password);
+      await signIn(email.toLowerCase().trim(), password.trim());
       toast.success('Access Granted. Session established.');
     } catch (error: any) {
-      const message = error.message || 'Authentication failed. Check your security key.';
-      toast.error(message);
-      console.error('Login error:', error);
+      let message = error.message || 'Authentication failed. Check your security key.';
+      
+      // Provide developer-friendly hints if it's the generic error
+      if (message === 'Invalid login credentials') {
+        message = 'Invalid credentials. If this is the admin account, ensure your ADMIN_PASSWORD matches exactly. Check the server logs for sync status.';
+      }
+      
+      toast.error(message, {
+        duration: 5000,
+      });
+      console.error('Login error detail:', error);
     } finally {
       setLoading(false);
     }

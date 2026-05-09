@@ -80,12 +80,9 @@ export default function App() {
       
       if (payload) {
         toast.success(`Navigating to ${payload.name || payload.firstName || action}`);
-        // In a real app we might set an "activeItem" state here to highlight the result
       }
     } else if (action === 'create-lead') {
       setCurrentView('leads');
-      // We'd need a better way to trigger the modal from here, 
-      // but for now navigating to the view is the standard behavior.
       toast.info("Add a lead from the Leads view");
     } else if (action === 'create-campaign') {
       setCurrentView('campaigns');
@@ -100,7 +97,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-[#09090b] text-[#fafafa] font-sans overflow-hidden select-none">
-      <Toaster theme="dark" position="bottom-right" expand={false} richColors />
       <CommandMenu onSelectAction={handleAction} />
       {/* Sidebar */}
       <aside className="w-64 border-r border-[#27272a] flex flex-col bg-[#09090b] z-20">
