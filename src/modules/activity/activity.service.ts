@@ -1,29 +1,33 @@
-import { prisma } from '@/src/lib/prisma';
-import { ActivityType, Prisma } from '@prisma/client';
+import { supabaseAdmin } from '@/src/lib/supabaseAdmin';
 
 export class ActivityService {
   static async log(data: {
-    type: ActivityType;
+    type: string;
     description?: string;
-    metadata?: Prisma.JsonValue;
+    metadata?: any;
     userId?: string;
     leadId?: string;
     workspaceId: string;
   }) {
-    return prisma.activity.create({
-      data,
-    });
+    const { data: activity, error } = await supabaseAdmin
+      .from('Activity')
+      .insert(data)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return activity;
   }
 
   static async getWorkspaceActivity(workspaceId: string, limit = 10) {
-    return prisma.activity.findMany({
-      where: { workspaceId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      include: {
-        user: { select: { name: true, avatarUrl: true } },
-        lead: { select: { firstName: true, lastName: true } },
-      }
-    });
+    const { data, error } = await supabaseAdmin
+      .from('Activity')
+      .select('*, User(name, avatarUrl), Lead(firstName, lastName)')
+      .eq('workspaceId', workspaceId)
+      .order('createdAt', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    return data;
   }
 }

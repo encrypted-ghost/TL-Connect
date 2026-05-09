@@ -1,20 +1,18 @@
-import { prisma } from '@/src/lib/prisma';
+import { supabaseAdmin } from '@/src/lib/supabaseAdmin';
 import { emailProvider } from '../email/email.provider';
-import { JobStatus } from '@prisma/client';
 
 export class CampaignEngine {
   static async processQueue() {
-    const jobs = await prisma.queueJob.findMany({
-      where: {
-        status: JobStatus.PENDING,
-        runAt: { lte: new Date() },
-      },
-      orderBy: [
-        { priority: 'desc' },
-        { createdAt: 'asc' },
-      ],
-      take: 10,
-    });
+    const { data: jobs, error } = await supabaseAdmin
+      .from('QueueJob')
+      .select('*')
+      .eq('status', 'PENDING')
+      .lte('runAt', new Date().toISOString())
+      .order('priority', { ascending: false })
+      .order('createdAt', { ascending: true })
+      .limit(10);
+
+    if (error || !jobs) return;
 
     for (const job of jobs) {
       await this.processJob(job.id);
@@ -22,13 +20,18 @@ export class CampaignEngine {
   }
 
   private static async processJob(jobId: string) {
-    const job = await prisma.queueJob.findUnique({ where: { id: jobId } });
-    if (!job) return;
+    const { data: job, error: getError } = await supabaseAdmin
+      .from('QueueJob')
+      .select('*')
+      .eq('id', jobId)
+      .single();
+      
+    if (getError || !job) return;
 
-    await prisma.queueJob.update({
-      where: { id: jobId },
-      data: { status: JobStatus.PROCESSING },
-    });
+    await supabaseAdmin
+      .from('QueueJob')
+      .update({ status: 'PROCESSING' })
+      .eq('id', jobId);
 
     try {
       if (job.type === 'SEND_EMAIL') {
@@ -42,40 +45,46 @@ export class CampaignEngine {
           metadata: { jobId: job.id, leadId: payload.leadId },
         });
 
-        // Update campaign stats
-        await prisma.campaign.update({
-          where: { id: payload.campaignId },
-          data: { statsSent: { increment: 1 } },
-        });
+        // Update campaign stats (manual increment)
+        const { data: campaign } = await supabaseAdmin
+          .from('Campaign')
+          .select('statsSent')
+          .eq('id', payload.campaignId)
+          .single();
+        
+        await supabaseAdmin
+          .from('Campaign')
+          .update({ statsSent: (campaign?.statsSent || 0) + 1 })
+          .eq('id', payload.campaignId);
 
         // Record activity
-        await prisma.activity.create({
-          data: {
+        await supabaseAdmin
+          .from('Activity')
+          .insert({
             type: 'EMAIL_SENT',
             description: `Sent email to ${payload.to}`,
             leadId: payload.leadId,
             workspaceId: payload.workspaceId,
-          }
-        });
+          });
       }
 
-      await prisma.queueJob.update({
-        where: { id: jobId },
-        data: { status: JobStatus.COMPLETED },
-      });
+      await supabaseAdmin
+        .from('QueueJob')
+        .update({ status: 'COMPLETED' })
+        .eq('id', jobId);
     } catch (error) {
       console.error('Job processing failed:', error);
-      const retryCount = job.retryCount + 1;
+      const retryCount = (job.retryCount || 0) + 1;
       
-      await prisma.queueJob.update({
-        where: { id: jobId },
-        data: {
-          status: retryCount >= job.maxRetries ? JobStatus.FAILED : JobStatus.PENDING,
+      await supabaseAdmin
+        .from('QueueJob')
+        .update({
+          status: retryCount >= (job.maxRetries || 3) ? 'FAILED' : 'PENDING',
           retryCount,
           lastError: error instanceof Error ? error.message : String(error),
-          runAt: new Date(Date.now() + Math.pow(2, retryCount) * 1000), // Exponential backoff
-        },
-      });
+          runAt: new Date(Date.now() + Math.pow(2, retryCount) * 1000).toISOString(),
+        })
+        .eq('id', jobId);
     }
   }
 }

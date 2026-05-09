@@ -1,88 +1,103 @@
-import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-
-export interface EmailTemplate {
-  id: string;
-  name: string;
-  subject: string;
-  bodyHtml: string;
-  bodyText?: string;
-  category: string;
-  workspaceId: string;
-  createdAt: any;
-  updatedAt: any;
-}
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
 
 export class TemplateService {
-  private static collectionName = 'templates';
+  static async getTemplates(workspaceId: string) {
+    const { data, error } = await supabaseAdmin
+      .from('Template')
+      .select('*')
+      .eq('workspaceId', workspaceId)
+      .eq('isDeleted', false)
+      .order('createdAt', { ascending: false });
 
-  static async getTemplates(workspaceId: string): Promise<EmailTemplate[]> {
-    const q = query(
-      collection(db, this.collectionName),
-      where('workspaceId', '==', workspaceId),
-      where('isDeleted', '==', false)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailTemplate));
+    if (error) throw error;
+    return data;
   }
 
-  static async getTemplate(id: string, workspaceId: string): Promise<EmailTemplate> {
-    const docRef = doc(db, this.collectionName, id);
-    const docSnap = await getDoc(docRef);
-    if (!docSnap.exists() || docSnap.data().workspaceId !== workspaceId) {
+  static async getTemplate(id: string, workspaceId: string) {
+    const { data: template, error } = await supabaseAdmin
+      .from('Template')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error || !template || template.workspaceId !== workspaceId) {
       throw new Error('Template not found');
     }
-    return { id: docSnap.id, ...docSnap.data() } as EmailTemplate;
+    return template;
   }
 
-  static async createTemplate(workspaceId: string, data: Partial<EmailTemplate>): Promise<EmailTemplate> {
-    const docRef = await addDoc(collection(db, this.collectionName), {
-      ...data,
-      workspaceId,
-      isDeleted: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-    return { id: docRef.id, ...data } as EmailTemplate;
+  static async createTemplate(workspaceId: string, data: any) {
+    const { data: template, error } = await supabaseAdmin
+      .from('Template')
+      .insert({
+        ...data,
+        workspaceId,
+        isDeleted: false
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return template;
   }
 
-  static async updateTemplate(id: string, workspaceId: string, data: Partial<EmailTemplate>): Promise<EmailTemplate> {
-    const docRef = doc(db, this.collectionName, id);
-    await updateDoc(docRef, {
-      ...data,
-      updatedAt: serverTimestamp()
-    });
-    const updated = await this.getTemplate(id, workspaceId);
-    return updated;
+  static async updateTemplate(id: string, workspaceId: string, data: any) {
+    // Verify ownership
+    await this.getTemplate(id, workspaceId);
+    
+    const { data: template, error } = await supabaseAdmin
+      .from('Template')
+      .update(data)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return template;
   }
 
-  static async deleteTemplate(id: string, workspaceId: string): Promise<void> {
-    const docRef = doc(db, this.collectionName, id);
-    await updateDoc(docRef, { isDeleted: true, updatedAt: serverTimestamp() });
+  static async deleteTemplate(id: string, workspaceId: string) {
+    await this.getTemplate(id, workspaceId);
+    
+    const { data, error } = await supabaseAdmin
+      .from('Template')
+      .update({ isDeleted: true })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
   }
 
   static async seedDefaults(workspaceId: string) {
-    const existing = await this.getTemplates(workspaceId);
-    if (existing.length > 0) return;
+    const { count, error: countError } = await supabaseAdmin
+      .from('Template')
+      .select('*', { count: 'exact', head: true })
+      .eq('workspaceId', workspaceId);
+    
+    if (countError) throw countError;
+    if (count && count > 0) return;
 
     const defaults = [
       {
         name: 'Welcome Email',
-        subject: 'Welcome to {{brand_name}}!',
+        subject: 'Welcome to TL Connect!',
         category: 'Onboarding',
-        bodyHtml: `<h1>Hi {{first_name}}!</h1><p>We are thrilled to have you on board. {{brand_name}} is here to help you secure your legacy.</p><p>Best,<br>The Team</p>`
+        bodyHtml: `<h1>Hi {{first_name}}!</h1><p>We are thrilled to have you on board. TL Connect is here to help you secure your legacy.</p><p>Best,<br>The Team</p>`
       },
       {
         name: 'Follow-up (Day 3)',
         subject: 'Quick question about your setup',
         category: 'Nurture',
-        bodyHtml: `<p>Hi {{first_name}},</p><p>I noticed you haven't finished setting up your vault yet. Is there anything I can help with?</p><p>Best,<br>{{agent_name}}</p>`
+        bodyHtml: `<p>Hi {{first_name}},</p><p>I noticed you haven't finished setting up your vault yet. Is there anything I can help with?</p><p>Best,<br>Enterprise Team</p>`
       }
     ];
 
-    for (const t of defaults) {
-      await this.createTemplate(workspaceId, t);
-    }
+    const { error: insertError } = await supabaseAdmin
+      .from('Template')
+      .insert(defaults.map(t => ({ ...t, workspaceId })));
+
+    if (insertError) throw insertError;
   }
 }

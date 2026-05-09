@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from './supabase';
+import { apiClient } from './apiClient';
 
 interface AuthContextType {
   user: User | null;
@@ -19,27 +19,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        const docRef = doc(db, 'users', u.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setProfile(docSnap.data());
-        }
-      } else {
-        setProfile(null);
-      }
-      setLoading(false);
+    // 1. Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      handleSession(session);
     });
+
+    // 2. Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      handleSession(session);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
+  const handleSession = async (session: Session | null) => {
+    if (session) {
+      setUser(session.user);
+      // Fetch profile from our API (DB-backed RBAC)
+      try {
+        const res = await apiClient.get('/auth/me');
+        setProfile(res.data);
+        
+        // Log the login event
+        await apiClient.post('/auth/log-login').catch(() => {});
+      } catch (err) {
+        console.error('Failed to fetch profile', err);
+      }
+    } else {
+      setUser(null);
+      setProfile(null);
+    }
+    setLoading(false);
+  };
+
   const signIn = async (email: string, pass: string) => {
-    await signInWithEmailAndPassword(auth, email, pass);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password: pass,
+    });
+    if (error) throw error;
   };
 
   const logout = async () => {
-    await signOut(auth);
+    await supabase.auth.signOut();
   };
 
   return (

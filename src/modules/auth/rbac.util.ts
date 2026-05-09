@@ -2,9 +2,10 @@
  * RBAC Utility for TL Connect
  */
 
-export type Role = 'ADMIN' | 'MANAGER' | 'AGENT' | 'VIEWER';
+export type Role = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'AGENT' | 'VIEWER';
 
 const ROLE_PERMISSIONS: Record<Role, string[]> = {
+  SUPER_ADMIN: ['*'],
   ADMIN: ['*'],
   MANAGER: ['leads.*', 'campaigns.*', 'analytics.view'],
   AGENT: ['leads.view', 'leads.edit', 'campaigns.view'],

@@ -1,15 +1,16 @@
 import { NextFunction, Request, Response } from 'express';
-import admin from 'firebase-admin';
+import { createClient } from '@supabase/supabase-js';
 
-// Initialize Firebase Admin if not already initialized
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID || 'ghost-gaming-official'
-  });
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_SECRET_KEY || '',
+  {
+    db: { schema: 'connect' }
+  }
+);
 
 /**
- * Production-grade Firebase Auth Middleware
+ * Supabase Auth Middleware
  */
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -18,27 +19,45 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     return res.status(401).json({ error: 'Unauthorized: Missing token' });
   }
 
-  const idToken = authHeader.split(' ')[1];
+  const token = authHeader.split(' ')[1];
 
   try {
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    // 1. Verify token with Supabase
+    const { data: { user: sbUser }, error } = await supabase.auth.getUser(token);
     
-    // For this simple environment, we derive workspaceId from email or a fixed one for now
-    // In a real app, you'd fetch the user profile from Firestore
+    if (error || !sbUser) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    }
+
+    // 2. Fetch RBAC profile from Supabase DB
+    const { data: userProfile, error: profileError } = await supabase
+      .from('User')
+      .select('id, email, role, workspaceId, workspace(name)')
+      .eq('email', sbUser.email || '')
+      .single();
+
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const isSuperAdmin = sbUser.email === adminEmail;
+
+    if (!userProfile && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Forbidden: No authorized profile found. Please contact an administrator.' });
+    }
+
+    // 3. Attach to request
     req.user = {
-      id: decodedToken.uid,
-      email: decodedToken.email || '',
-      role: (decodedToken as any).role || 'ADMIN', // Default to admin for first user
-      workspaceId: 'default-workspace' // Hardcoded for simplicity in demo
+      id: userProfile?.id || 'SUPER_ADMIN_ID',
+      email: sbUser.email || '',
+      role: isSuperAdmin ? 'SUPER_ADMIN' : (userProfile?.role || 'VIEWER'),
+      workspaceId: userProfile?.workspaceId || 'GLOBAL'
     };
     
     next();
   } catch (error) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    console.error('Auth middleware error:', error);
+    return res.status(401).json({ error: 'Unauthorized: Auth processing failed' });
   }
 }
 
-// Extend Express Request type
 declare global {
   namespace Express {
     interface Request {

@@ -1,54 +1,59 @@
-import { db } from '../../lib/firebase';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
 
 export class AnalyticsService {
   static async getWorkspaceMetrics(workspaceId: string) {
-    // Lead Count
-    const leadsQ = query(
-      collection(db, 'leads'),
-      where('workspaceId', '==', workspaceId)
-    );
-    const leadsSnap = await getDocs(leadsQ);
-    const leadsCount = leadsSnap.size;
+    const [leadsRes, campaignsRes, statsRes] = await Promise.all([
+      supabaseAdmin.from('Lead').select('*', { count: 'exact', head: true }).eq('workspaceId', workspaceId),
+      supabaseAdmin.from('Campaign').select('*', { count: 'exact', head: true }).eq('workspaceId', workspaceId),
+      supabaseAdmin.rpc('get_workspace_stats', { p_workspace_id: workspaceId }) // This would be a custom Postgres function in Supabase
+    ]);
 
-    // Campaign Stats
-    const campaignsQ = query(
-      collection(db, 'campaigns'),
-      where('workspaceId', '==', workspaceId)
-    );
-    const campaignsSnap = await getDocs(campaignsQ);
-    const campaignData = campaignsSnap.docs.map(d => d.data());
+    // Fallback if the RPC doesn't exist (manual aggregation)
+    let stats: any = statsRes.data;
+    if (statsRes.error || !stats) {
+      const { data } = await supabaseAdmin
+        .from('Campaign')
+        .select('statsSent, statsOpened, statsReplied, statsBounced')
+        .eq('workspaceId', workspaceId);
+      
+      stats = (data || []).reduce((acc, curr) => ({
+        statsSent: acc.statsSent + (curr.statsSent || 0),
+        statsOpened: acc.statsOpened + (curr.statsOpened || 0),
+        statsReplied: acc.statsReplied + (curr.statsReplied || 0),
+        statsBounced: acc.statsBounced + (curr.statsBounced || 0),
+      }), { statsSent: 0, statsOpened: 0, statsReplied: 0, statsBounced: 0 });
+    }
 
-    const totalSent = campaignData.reduce((acc, c) => acc + (c.statsSent || 0), 0);
-    const totalReplies = campaignData.reduce((acc, c) => acc + (c.statsReplied || 0), 0);
-    const totalBounces = campaignData.reduce((acc, c) => acc + (c.statsBounced || 0), 0);
+    const totalSent = stats.statsSent || 0;
+    const totalReplied = stats.statsReplied || 0;
+    const totalBounced = stats.statsBounced || 0;
 
     return {
-      leadsCount: leadsCount || 0,
-      campaignsCount: campaignData.length || 0,
+      leadsCount: leadsRes.count || 0,
+      campaignsCount: campaignsRes.count || 0,
       totalSent,
-      replyRate: totalSent > 0 ? (totalReplies / totalSent) * 100 : 0,
-      bounceRate: totalSent > 0 ? (totalBounces / totalSent) * 100 : 0,
+      replyRate: totalSent > 0 ? (totalReplied / totalSent) * 100 : 0,
+      bounceRate: totalSent > 0 ? (totalBounced / totalSent) * 100 : 0,
     };
   }
 
   static async getCampaignPerformance(campaignId: string) {
-    const docRef = doc(db, 'campaigns', campaignId);
-    const docSnap = await getDoc(docRef);
-    
-    if (!docSnap.exists()) return null;
-    const stats = docSnap.data();
+    const { data: campaign, error } = await supabaseAdmin
+      .from('Campaign')
+      .select('*')
+      .eq('id', campaignId)
+      .single();
+
+    if (error || !campaign) return null;
 
     const calculateRate = (dividend: number) => 
-      stats.statsSent > 0 ? ((dividend / stats.statsSent) * 100).toFixed(1) + '%' : '0%';
+      campaign.statsSent > 0 ? ((dividend / campaign.statsSent) * 100).toFixed(1) + '%' : '0%';
 
     return {
-      id: docSnap.id,
-      ...stats,
-      openRate: calculateRate(stats.statsOpened || 0),
-      clickRate: calculateRate(stats.statsClicked || 0),
-      replyRate: calculateRate(stats.statsReplied || 0),
-      bounceRate: calculateRate(stats.statsBounced || 0),
+      ...campaign,
+      openRate: calculateRate(campaign.statsOpened || 0),
+      replyRate: calculateRate(campaign.statsReplied || 0),
+      bounceRate: calculateRate(campaign.statsBounced || 0),
     };
   }
 }

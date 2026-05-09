@@ -51,9 +51,19 @@ export default function App() {
   if (loading) {
     return (
       <div className="h-screen w-full bg-[#09090b] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-neutral-500 text-sm font-medium animate-pulse">Initializing Security Layers...</p>
+        <div className="flex flex-col items-center gap-6">
+          <div className="relative">
+            <div className="absolute -inset-4 bg-indigo-500/20 rounded-full blur-xl animate-pulse"></div>
+            <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin shadow-[0_0_20px_rgba(99,102,241,0.4)]" />
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-white text-[10px] uppercase tracking-[0.4em] font-black animate-pulse">Initializing System</p>
+            <div className="flex gap-1">
+              <div className="w-1 h-1 rounded-full bg-indigo-500/40"></div>
+              <div className="w-1 h-1 rounded-full bg-indigo-500/60"></div>
+              <div className="w-1 h-1 rounded-full bg-indigo-500/40"></div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -93,53 +103,62 @@ export default function App() {
       <Toaster theme="dark" position="bottom-right" expand={false} richColors />
       <CommandMenu onSelectAction={handleAction} />
       {/* Sidebar */}
-      <aside className="w-64 border-r border-[#27272a] flex flex-col bg-[#09090b]">
-        <div className="px-6 py-8 flex flex-col items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <ShieldCheck className="text-white" size={24} />
+      <aside className="w-64 border-r border-[#27272a] flex flex-col bg-[#09090b] z-20">
+        <div className="px-6 py-10 flex flex-col items-start gap-4">
+          <div className="relative group cursor-pointer" onClick={() => setCurrentView('dashboard')}>
+            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl blur opacity-20 group-hover:opacity-60 transition duration-1000"></div>
+            <div className="relative w-12 h-12 rounded-xl bg-[#111114] border border-neutral-800 flex items-center justify-center shadow-2xl group-hover:border-indigo-500/50 transition-colors">
+              <ShieldCheck className="text-indigo-400 group-hover:text-indigo-300 transition-colors" size={26} />
+            </div>
           </div>
-          <span className="font-bold tracking-tight text-xl bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
-            TL Connect
-          </span>
+          <div className="flex flex-col space-y-0.5">
+            <span className="font-bold tracking-tight text-xl text-white">
+              TL <span className="text-indigo-400">Connect</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] uppercase tracking-[0.2em] text-neutral-600 font-black">Enterprise CRM</span>
+              <div className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse"></div>
+            </div>
+          </div>
         </div>
 
-        <nav className="flex-1 px-3 space-y-1">
-          <div className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold px-3 py-2">Operating System</div>
+        <nav className="flex-1 px-3 space-y-1 overflow-y-auto scrollbar-none">
+          <div className="text-[9px] uppercase tracking-[0.3em] text-neutral-500 font-black px-4 py-3 mb-1 opacity-50">Operations</div>
           <SidebarNavButton 
             icon={<LayoutDashboard size={16} />} 
-            label="Dashboard" 
+            label="Command Center" 
             active={currentView === 'dashboard'} 
             onClick={() => setCurrentView('dashboard')} 
           />
           <SidebarNavButton 
             icon={<Users size={16} />} 
-            label="Leads" 
+            label="Lead Matrix" 
             active={currentView === 'leads'} 
             onClick={() => setCurrentView('leads')} 
           />
           <SidebarNavButton 
             icon={<Send size={16} />} 
-            label="Campaigns" 
+            label="Outreach" 
             active={currentView === 'campaigns'} 
             onClick={() => setCurrentView('campaigns')} 
           />
           <SidebarNavButton 
             icon={<FileText size={16} />} 
-            label="Templates" 
+            label="Blueprints" 
             active={currentView === 'templates'} 
             onClick={() => setCurrentView('templates')} 
           />
           <SidebarNavButton 
             icon={<Mail size={16} />} 
-            label="Unified Inbox" 
+            label="Signal Inbox" 
             active={currentView === 'inbox'} 
             onClick={() => setCurrentView('inbox')} 
           />
 
-          <div className="text-[10px] uppercase tracking-wider text-neutral-500 font-bold px-3 py-6">Infrastructure</div>
+          <div className="text-[9px] uppercase tracking-[0.3em] text-neutral-500 font-black px-4 py-8 mb-1 opacity-50">Infrastructure</div>
           <SidebarNavButton 
             icon={<Globe size={16} />} 
-            label="Domains & DNS" 
+            label="DNS & Nodes" 
             active={currentView === 'domains'} 
             onClick={() => setCurrentView('domains')} 
           />
@@ -149,40 +168,45 @@ export default function App() {
             active={currentView === 'automations'} 
             onClick={() => setCurrentView('automations')} 
           />
+          <div className="h-4"></div>
           <SidebarNavButton 
             icon={<Settings size={16} />} 
-            label="Settings & Team" 
+            label="System Config" 
             active={currentView === 'settings'} 
             onClick={() => setCurrentView('settings')} 
           />
         </nav>
 
-        <div className="p-4 border-t border-[#27272a]">
-          <div className="bg-[#18181b] p-3 rounded-lg border border-[#27272a]">
+        <div className="p-4 border-t border-[#27272a] bg-neutral-950/50">
+          <div className="bg-[#111114] p-4 rounded-xl border border-[#27272a] shadow-inner">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-[10px] text-neutral-500 font-bold">REPUTATION</span>
-              <span className="text-emerald-500 text-[10px] font-bold uppercase">Great</span>
+              <span className="text-[9px] text-neutral-500 font-black uppercase tracking-widest">Workspace Rep</span>
+              <span className="text-emerald-500 text-[10px] font-black">94.2%</span>
             </div>
-            <div className="w-full bg-[#27272a] h-1.5 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full w-[94%]" style={{ transition: 'width 1s ease-in-out' }}></div>
+            <div className="w-full bg-[#09090b] h-1.5 rounded-full overflow-hidden border border-neutral-900">
+              <div className="bg-gradient-to-r from-red-500 via-amber-500 to-emerald-500 h-full w-[94%]" style={{ transition: 'width 2s ease-in-out' }}></div>
             </div>
           </div>
-          <div className="mt-4 flex items-center justify-between px-2 group">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs border border-neutral-700 font-bold text-indigo-400 uppercase">
+          <div className="mt-6 flex items-center justify-between px-2">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-neutral-800 to-neutral-900 border border-neutral-700 flex items-center justify-center text-xs font-black text-indigo-400 shadow-xl uppercase">
                 {user.email?.[0] || 'U'}
               </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-semibold truncate w-24">John Doe</span>
-                <span className="text-[10px] text-neutral-500">{profile?.role || 'User'}</span>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[11px] font-bold text-white truncate uppercase tracking-tight">{user.email?.split('@')[0] || 'User'}</span>
+                <div className="flex items-center gap-1.5">
+                  <Badge className="h-3.5 bg-indigo-500/10 text-indigo-400 border-indigo-500/20 text-[8px] font-black uppercase tracking-tighter px-1">
+                    {profile?.role || 'VIEWER'}
+                  </Badge>
+                </div>
               </div>
             </div>
             <button 
               onClick={() => logout()}
-              className="text-neutral-500 hover:text-red-400 p-1.5 transition-colors rounded hover:bg-red-500/10"
-              title="Logout"
+              className="group text-neutral-600 hover:text-red-400 p-2 transition-all rounded-xl hover:bg-red-500/10 active:scale-90"
+              title="Terminate Session"
             >
-              <LogOut size={14} />
+              <LogOut size={16} className="group-hover:rotate-12 transition-transform" />
             </button>
           </div>
         </div>
@@ -191,11 +215,14 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-full bg-[#09090b] overflow-hidden">
         {/* Top Header */}
-        <header className="h-14 border-b border-[#27272a] px-8 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-neutral-500">Transfer Legacy</span>
-            <span className="text-neutral-700">/</span>
-            <span className="text-neutral-200 font-medium capitalize">{currentView}</span>
+        <header className="h-16 border-b border-[#27272a] px-8 flex items-center justify-between shrink-0 bg-[#09090b]/80 backdrop-blur-md z-10">
+          <div className="flex items-center gap-5 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.8)]"></div>
+              <span className="text-neutral-400 font-bold uppercase tracking-widest text-[10px]">T.L. Matrix</span>
+            </div>
+            <span className="text-neutral-800 font-black">|</span>
+            <span className="text-white font-black uppercase tracking-widest text-[10px]">{currentView}</span>
           </div>
           
           <div className="flex items-center gap-4">
