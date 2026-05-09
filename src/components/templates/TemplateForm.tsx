@@ -3,6 +3,7 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/src/components/ui/tabs';
+import { cn } from '@/src/lib/utils';
 
 interface TemplateFormProps {
   initialData?: any;
@@ -97,7 +98,7 @@ export function TemplateForm({ initialData, onSubmit, onCancel, isSubmitting }: 
           </TabsContent>
         </Tabs>
         <p className="text-[10px] text-neutral-500 mt-2">
-          Tip: Use <code className="text-neutral-300">{{variable_name}}</code> for dynamic content.
+          Tip: Use <code className="text-neutral-300">{"{{variable_name}}"}</code> for dynamic content.
         </p>
       </div>
 

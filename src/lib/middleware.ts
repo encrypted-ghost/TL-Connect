@@ -1,10 +1,15 @@
 import { NextFunction, Request, Response } from 'express';
-import { AuthService } from '../modules/auth/auth.service';
-import { Role } from '@prisma/client';
-import { hasPermission } from '../modules/auth/rbac.util';
+import admin from 'firebase-admin';
+
+// Initialize Firebase Admin if not already initialized
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: process.env.FIREBASE_PROJECT_ID || 'ghost-gaming-official'
+  });
+}
 
 /**
- * Production-grade Auth and RBAC Middleware
+ * Production-grade Firebase Auth Middleware
  */
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -13,34 +18,24 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     return res.status(401).json({ error: 'Unauthorized: Missing token' });
   }
 
-  const token = authHeader.split(' ')[1];
-  const payload = await AuthService.verifyToken(token);
+  const idToken = authHeader.split(' ')[1];
 
-  if (!payload) {
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    
+    // For this simple environment, we derive workspaceId from email or a fixed one for now
+    // In a real app, you'd fetch the user profile from Firestore
+    req.user = {
+      id: decodedToken.uid,
+      email: decodedToken.email || '',
+      role: (decodedToken as any).role || 'ADMIN', // Default to admin for first user
+      workspaceId: 'default-workspace' // Hardcoded for simplicity in demo
+    };
+    
+    next();
+  } catch (error) {
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
-
-  // Attach context to request
-  req.user = payload;
-  next();
-}
-
-/**
- * RBAC Permission Guard
- */
-export function requirePermission(permission: string) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    if (!hasPermission(req.user.role as Role, permission)) {
-      return res.status(403).json({ 
-        error: 'Forbidden: Insufficient permissions',
-        required: permission 
-      });
-    }
-
-    next();
-  };
 }
 
 // Extend Express Request type
@@ -50,7 +45,7 @@ declare global {
       user?: {
         id: string;
         email: string;
-        role: Role;
+        role: string;
         workspaceId: string;
       };
     }

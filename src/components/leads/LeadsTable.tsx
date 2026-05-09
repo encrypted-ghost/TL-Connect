@@ -1,18 +1,12 @@
 import React from 'react';
-import { Lead, LeadStatus, Tag } from '@prisma/client';
 import { DataTable } from '../ui/data-table';
 import { Badge } from '../ui/badge';
 import { MoreHorizontal, User } from 'lucide-react';
 import { Button } from '../ui/button';
-import { cn } from '@/src/lib/utils';
 import { timeAgo } from '@/src/lib/utils';
 
 interface LeadsTableProps {
-  leads: (Lead & { 
-    company?: { name: string } | null, 
-    tags: Tag[],
-    owner?: { name: string | null } | null 
-  })[];
+  leads: any[];
 }
 
 export function LeadsTable({ leads }: LeadsTableProps) {

@@ -1,18 +1,22 @@
 /**
  * RBAC Utility for TL Connect
  */
-import { Role } from '@prisma/client';
-import { config } from '../config';
+
+export type Role = 'ADMIN' | 'MANAGER' | 'AGENT' | 'VIEWER';
+
+const ROLE_PERMISSIONS: Record<Role, string[]> = {
+  ADMIN: ['*'],
+  MANAGER: ['leads.*', 'campaigns.*', 'analytics.view'],
+  AGENT: ['leads.view', 'leads.edit', 'campaigns.view'],
+  VIEWER: ['leads.view', 'analytics.view'],
+};
 
 export function hasPermission(userRole: Role, permission: string): boolean {
-  const permissions = config.roles[userRole] as string[];
+  const permissions = ROLE_PERMISSIONS[userRole] || [];
   
   if (permissions.includes('*')) return true;
-  
-  // Check for exact match
   if (permissions.includes(permission)) return true;
   
-  // Check for wildcard match (e.g., 'leads.*' matching 'leads.view')
   const parts = permission.split('.');
   if (parts.length > 1) {
     const wildCard = `${parts[0]}.*`;

@@ -4,26 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Send, 
-  Mail, 
-  Globe, 
-  Zap, 
-  Search, 
-  Bell, 
-  MoreHorizontal,
-  Plus,
-  Filter,
-  Inbox,
-  Layout,
-  Settings,
-  ChevronRight,
-  ShieldCheck,
-  Activity as ActivityIcon,
-  FileText
-} from 'lucide-react';
+import { useAuth } from '@/src/lib/AuthContext';
+import { Login } from '@/src/components/auth/Login';
+import { LogOut, LayoutDashboard, Users, Send, Mail, Globe, Zap, Search, Bell, MoreHorizontal, Plus, Filter, Inbox, Layout, Settings, ChevronRight, ShieldCheck, Activity as ActivityIcon, FileText, Trash2, CheckCircle, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
 import { CommandMenu } from '@/src/components/ui/command-menu';
@@ -32,6 +15,8 @@ import { LeadForm } from '@/src/components/leads/LeadForm';
 import { LeadsTable } from '@/src/components/leads/LeadsTable';
 import { TemplateList } from '@/src/components/templates/TemplateList';
 import { TemplateForm } from '@/src/components/templates/TemplateForm';
+import { CampaignList } from '@/src/components/campaigns/CampaignList';
+import { CampaignForm } from '@/src/components/campaigns/CampaignForm';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
 import { cn } from '@/src/lib/utils';
@@ -39,30 +24,44 @@ import { apiClient } from '@/src/lib/apiClient';
 
 import { useEffect } from 'react';
 
-type View = 'dashboard' | 'leads' | 'campaigns' | 'templates' | 'inbox' | 'domains' | 'automations';
+import { DomainManagement } from '@/src/components/domains/DomainManagement';
+import { TeamSettings } from '@/src/components/settings/TeamSettings';
+
+type View = 'dashboard' | 'leads' | 'campaigns' | 'templates' | 'inbox' | 'domains' | 'automations' | 'settings';
 
 export default function App() {
+  const { user, profile, loading, logout } = useAuth();
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [stats, setStats] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const init = async () => {
+    if (!user) return;
+    
+    const fetchStats = async () => {
       try {
-        // Try to bootstrap if it's the first run
-        await apiClient.post('/auth/bootstrap');
-        
-        // Fetch real analytics
         const res = await apiClient.get('/analytics/overview');
         setStats(res.data);
       } catch (error) {
-        console.error('Initialization error:', error);
-      } finally {
-        setIsLoading(false);
+        console.error('Fetch stats error:', error);
       }
     };
-    init();
-  }, []);
+    fetchStats();
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="h-screen w-full bg-[#09090b] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-neutral-500 text-sm font-medium animate-pulse">Initializing Security Layers...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
 
   const handleAction = (action: string, payload?: any) => {
     // Basic navigation
@@ -96,11 +95,9 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-64 border-r border-[#27272a] flex flex-col bg-[#09090b]">
         <div className="px-6 py-8 flex flex-col items-start gap-4">
-          <img 
-            src="/input_file_0.png" 
-            alt="TL Connect Logo" 
-            className="w-12 h-12 object-contain"
-          />
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <ShieldCheck className="text-white" size={24} />
+          </div>
           <span className="font-bold tracking-tight text-xl bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
             TL Connect
           </span>
@@ -152,6 +149,12 @@ export default function App() {
             active={currentView === 'automations'} 
             onClick={() => setCurrentView('automations')} 
           />
+          <SidebarNavButton 
+            icon={<Settings size={16} />} 
+            label="Settings & Team" 
+            active={currentView === 'settings'} 
+            onClick={() => setCurrentView('settings')} 
+          />
         </nav>
 
         <div className="p-4 border-t border-[#27272a]">
@@ -164,12 +167,23 @@ export default function App() {
               <div className="bg-emerald-500 h-full w-[94%]" style={{ transition: 'width 1s ease-in-out' }}></div>
             </div>
           </div>
-          <div className="mt-4 flex items-center gap-3 px-2">
-            <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs border border-neutral-700">JD</div>
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold">John Doe</span>
-              <span className="text-[10px] text-neutral-500">Administrator</span>
+          <div className="mt-4 flex items-center justify-between px-2 group">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-xs border border-neutral-700 font-bold text-indigo-400 uppercase">
+                {user.email?.[0] || 'U'}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold truncate w-24">John Doe</span>
+                <span className="text-[10px] text-neutral-500">{profile?.role || 'User'}</span>
+              </div>
             </div>
+            <button 
+              onClick={() => logout()}
+              className="text-neutral-500 hover:text-red-400 p-1.5 transition-colors rounded hover:bg-red-500/10"
+              title="Logout"
+            >
+              <LogOut size={14} />
+            </button>
           </div>
         </div>
       </aside>
@@ -230,9 +244,10 @@ function ViewRenderer({ view, stats }: { view: View, stats: any }) {
     case 'campaigns': return <CampaignsView />;
     case 'templates': return <TemplatesView />;
     case 'inbox': return <InboxView />;
-    case 'domains': return <DomainsView />;
+    case 'domains': return <DomainManagement />;
     case 'automations': return <AutomationsView />;
-    default: return <DashboardView />;
+    case 'settings': return <TeamSettings />;
+    default: return <DashboardView stats={stats} />;
   }
 }
 
@@ -365,21 +380,103 @@ function LeadsView() {
 }
 
 function CampaignsView() {
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const fetchCampaigns = async () => {
+    try {
+      const res = await apiClient.get('/campaigns');
+      setCampaigns(res.data);
+    } catch (err) {
+      toast.error('Failed to load campaigns');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCampaigns();
+  }, []);
+
+  const handleSubmit = async (data: any) => {
+    try {
+      await apiClient.post('/campaigns', data);
+      toast.success(data.scheduledAt ? 'Campaign scheduled successfully' : 'Campaign created');
+      setIsModalOpen(false);
+      fetchCampaigns();
+    } catch (err) {
+      toast.error('Failed to create campaign');
+    }
+  };
+
+  const handleStart = async (id: string) => {
+    try {
+      await apiClient.post(`/campaigns/${id}/start`);
+      toast.success('Campaign started');
+      fetchCampaigns();
+    } catch (err) {
+      toast.error('Failed to start campaign');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this campaign?')) return;
+    try {
+      await apiClient.delete(`/campaigns/${id}`);
+      toast.success('Campaign deleted');
+      fetchCampaigns();
+    } catch (err) {
+      toast.error('Failed to delete campaign');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Campaigns</h2>
-        <Button variant="white" size="sm" className="gap-2">
-          <Plus size={14} /> Create Campaign
-        </Button>
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Campaigns</h2>
+          <p className="text-sm text-neutral-500">Launch and monitor your automated outreach.</p>
+        </div>
+        <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+          <DialogTrigger asChild>
+            <Button variant="white" size="sm" className="gap-2">
+              <Plus size={14} /> Create Campaign
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[500px] bg-neutral-950 border-neutral-800">
+            <DialogHeader>
+              <DialogTitle>Create New Campaign</DialogTitle>
+              <DialogDescription>
+                Define your outreach campaign and choose when to start.
+              </DialogDescription>
+            </DialogHeader>
+            <CampaignForm 
+              onSubmit={handleSubmit}
+              onCancel={() => setIsModalOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
 
-      <EmptyState 
-        icon={<Layout size={48} className="text-neutral-600" />}
-        title="No Outreach Campaigns"
-        description="Connect a domain and create a template to launch your first campaign."
-        action={<Button variant="white">Get Started</Button>}
-      />
+      {loading ? (
+        <div className="h-64 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+        </div>
+      ) : campaigns.length > 0 ? (
+        <CampaignList 
+          campaigns={campaigns} 
+          onStart={handleStart}
+          onDelete={handleDelete}
+        />
+      ) : (
+        <EmptyState 
+          icon={<Layout size={48} className="text-neutral-600" />}
+          title="No Outreach Campaigns"
+          description="Connect a domain and create a template to launch your first campaign."
+          action={<Button variant="white" onClick={() => setIsModalOpen(true)}>Create First Campaign</Button>}
+        />
+      )}
     </div>
   );
 }

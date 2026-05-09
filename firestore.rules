@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Shared Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && getUserData().role == 'ADMIN';
+    }
+
+    function isWorkspaceMember(workspaceId) {
+      return isSignedIn() && getUserData().workspaceId == workspaceId;
+    }
+
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isSignedIn() && !exists(/databases/$(database)/documents/users/$(userId));
+      allow update: if isAdmin(); // Only admins can change roles/workspaces
+    }
+
+    // Workspaces
+    match /workspaces/{workspaceId} {
+      allow read: if isWorkspaceMember(workspaceId);
+      allow write: if isAdmin() && isWorkspaceMember(workspaceId);
+    }
+
+    // Leads
+    match /leads/{leadId} {
+      allow read, write: if isSignedIn() && isWorkspaceMember(resource.data.workspaceId || request.resource.data.workspaceId);
+    }
+
+    // Campaigns
+    match /campaigns/{campaignId} {
+      allow read, write: if isSignedIn() && isWorkspaceMember(resource.data.workspaceId || request.resource.data.workspaceId);
+    }
+
+    // Templates
+    match /templates/{templateId} {
+      allow read, write: if isSignedIn() && isWorkspaceMember(resource.data.workspaceId || request.resource.data.workspaceId);
+    }
+
+    // Domains
+    match /domains/{domainId} {
+      allow read, write: if isSignedIn() && isWorkspaceMember(resource.data.workspaceId || request.resource.data.workspaceId);
+    }
+  }
+}
