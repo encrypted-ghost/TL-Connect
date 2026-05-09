@@ -1,6 +1,6 @@
 import { config } from '../../config/index.ts';
 import { env } from '../../config/env.config.ts';
-import { IEmailProvider } from './provider.interface.ts';
+import type { IEmailProvider } from './provider.interface.ts';
 import { MockEmailProvider } from './providers/mock.impl.ts';
 import { MailjetEmailProvider } from './providers/mailjet.impl.ts';
 

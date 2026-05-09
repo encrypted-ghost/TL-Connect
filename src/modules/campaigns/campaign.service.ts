@@ -3,10 +3,10 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 export class CampaignService {
   static async getCampaigns(workspaceId: string) {
     const { data, error } = await supabaseAdmin
-      .from('Campaign')
-      .select('*, template(name)')
-      .eq('workspaceId', workspaceId)
-      .order('createdAt', { ascending: false });
+      .from('campaigns')
+      .select('*, template:templates(name)')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
     return data;
@@ -14,10 +14,11 @@ export class CampaignService {
 
   static async createCampaign(workspaceId: string, data: any) {
     const { data: campaign, error } = await supabaseAdmin
-      .from('Campaign')
+      .from('campaigns')
       .insert({
-        ...data,
-        workspaceId,
+        name: data.name,
+        template_id: data.templateId || data.template_id,
+        workspace_id: workspaceId,
         status: 'DRAFT'
       })
       .select()
@@ -29,13 +30,13 @@ export class CampaignService {
 
   static async startCampaign(campaignId: string, workspaceId: string) {
     const { data: campaign, error } = await supabaseAdmin
-      .from('Campaign')
+      .from('campaigns')
       .update({ 
         status: 'RUNNING',
-        startedAt: new Date().toISOString()
+        started_at: new Date().toISOString()
       })
       .eq('id', campaignId)
-      .eq('workspaceId', workspaceId)
+      .eq('workspace_id', workspaceId)
       .select()
       .single();
 

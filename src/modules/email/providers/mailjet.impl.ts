@@ -1,4 +1,4 @@
-import { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface.ts';
+import type { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface.ts';
 import Mailjet from 'node-mailjet';
 import { env } from '../../../config/env.config.ts';
 

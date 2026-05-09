@@ -16,7 +16,7 @@ apiClient.interceptors.request.use(async (config) => {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.access_token) {
-      config.headers.Authorization = `Bearer ${session.access_token}`;
+      config.headers.set('Authorization', `Bearer ${session.access_token}`);
     }
   } catch (e) {
     console.error('Error fetching session for API client', e);
@@ -30,8 +30,12 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       console.warn('Session expired or invalid. Redirecting to auth.');
-      // window.location.href = '/login'; 
     }
+    
+    if (!error.response && error.message === 'Network Error') {
+      console.error('API Network Error: The server might be down or unreachable. baseURL:', apiClient.defaults.baseURL);
+    }
+
     return Promise.reject(error);
   }
 );

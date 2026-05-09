@@ -20,13 +20,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // 1. Check current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error && error.message.includes('Refresh Token Not Found')) {
+        console.warn('Stale session detected, signing out...');
+        supabase.auth.signOut();
+      }
       handleSession(session);
     });
 
     // 2. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      handleSession(session);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setProfile(null);
+      } else {
+        handleSession(session);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -42,8 +51,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         // Log the login event
         await apiClient.post('/auth/log-login').catch(() => {});
-      } catch (err) {
-        console.error('Failed to fetch profile', err);
+      } catch (err: any) {
+        console.error('Failed to fetch profile', err.response?.data || err.message);
       }
     } else {
       setUser(null);

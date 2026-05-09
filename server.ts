@@ -25,31 +25,27 @@ async function startServer() {
 
   // --- BOOTSTRAP ---
   async function bootstrap() {
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@transferlegacy.com').toLowerCase().trim();
-    const adminPass = (process.env.ADMIN_PASSWORD || 'change-me-immediately').trim();
-
-    console.log('[Bootstrap] Starting admin sync...');
-    console.log(`[Bootstrap] Supabase URL: ${process.env.SUPABASE_URL || 'MISSING'}`);
-    console.log(`[Bootstrap] Supabase Secret: ${process.env.SUPABASE_SECRET_KEY ? 'PRESENT (starts with ' + process.env.SUPABASE_SECRET_KEY.substring(0, 4) + '...)' : 'MISSING'}`);
-    console.log(`[Bootstrap] Target Admin Email: "${adminEmail}"`);
-    console.log(`[Bootstrap] Admin Password Length: ${adminPass.length}`);
-
-    if (adminPass.length < 6) {
-      console.error('[Bootstrap] ERROR: Admin password is too short. Supabase requires at least 6 characters.');
-    }
-
     try {
-      // 1. Ensure Admin in Auth (DO THIS FIRST BEFORE DB TABLES TO ENSURE LOGIN WORKS)
+      const adminEmail = (process.env.ADMIN_EMAIL || 'admin@transferlegacy.com').toLowerCase().trim();
+      const adminPass = (process.env.ADMIN_PASSWORD || 'change-me-immediately').trim();
+
+      console.log('[Bootstrap] Starting admin sync...');
+      
+      if (!process.env.SUPABASE_URL || (!process.env.SUPABASE_SECRET_KEY && !process.env.VITE_SUPABASE_ANON_KEY)) {
+        console.warn('[Bootstrap] Missing Supabase credentials. Background sync skipped.');
+        return;
+      }
+
+      // 1. Ensure Admin in Auth
       const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
       if (listError) {
-        console.error('[Bootstrap] Failed to list auth users:', listError.message);
-        throw listError;
+        console.error('[Bootstrap] Auth list failed:', listError.message);
+        return;
       }
       
       let targetAuthUser = (users as any[]).find(u => u.email?.toLowerCase() === adminEmail);
       
       if (!targetAuthUser) {
-        console.log(`[Bootstrap] Admin user ${adminEmail} not found in Auth, creating...`);
         const { data: { user: sbUser }, error: sbError } = await supabaseAdmin.auth.admin.createUser({
           email: adminEmail,
           password: adminPass,
@@ -58,106 +54,69 @@ async function startServer() {
         });
 
         if (sbError) {
-          console.error('[Bootstrap] Supabase auth creation error:', sbError.message);
-          throw sbError;
+          console.error('[Bootstrap] Auth creation failed:', sbError.message);
+          return;
         }
         targetAuthUser = sbUser;
-        console.log(`[Bootstrap] Created admin auth user with ID: ${targetAuthUser?.id}`);
       } else {
-        console.log(`[Bootstrap] Admin user ${adminEmail} exists in Auth ID: ${targetAuthUser.id}. Force-syncing password...`);
-        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-          targetAuthUser.id, 
-          { 
-            password: adminPass,
-            user_metadata: { 
-              bootstrapped: true, 
-              last_sync: new Date().toISOString(),
-              sync_source: 'server_env'
-            },
-            email_confirm: true
-          }
-        );
-        if (updateError) {
-          console.error('[Bootstrap] FAILED to sync admin password:', updateError.message);
-        } else {
-          console.log('[Bootstrap] SUCCESS: Admin credentials synchronized with environment variables.');
-        }
-      }
-
-      // VERIFICATION STEP:
-      console.log('[Bootstrap] Verifying credentials via sign-in attempt...');
-      const { error: verifyError } = await supabaseAdmin.auth.signInWithPassword({
-        email: adminEmail,
-        password: adminPass,
-      });
-      
-      if (verifyError) {
-        console.error(`[Bootstrap] VERIFICATION FAILED: "${verifyError.message}". This confirms why the frontend can't log in.`);
-      } else {
-        console.log('[Bootstrap] VERIFICATION SUCCESS: Credentials are valid and Auth is ready.');
+        await supabaseAdmin.auth.admin.updateUserById(targetAuthUser.id, { 
+          password: adminPass,
+          email_confirm: true
+        });
       }
 
       // 2. Database Tables Sync
-      // Catch schema errors gracefully so the server doesn't crash, but logged clearly
-      let workspace;
-      try {
-        const { data: workspaces, error: wsError } = await supabaseAdmin.from('Workspace').select('*').limit(1);
-        if (wsError) throw wsError;
-        workspace = workspaces?.[0];
+      const { data: workspaces, error: wsError } = await supabaseAdmin.from('workspaces').select('*').limit(1);
+      if (wsError) {
+        console.error('[Bootstrap] workspaces fetch error:', JSON.stringify(wsError, null, 2));
+      }
+      let workspace = workspaces?.[0];
 
-        if (!workspace) {
-          const { data, error: wsInsertError } = await supabaseAdmin.from('Workspace').insert({
-            id: 'default-workspace-id',
-            name: 'Transfer Legacy HQ',
-            slug: 'tl-hq',
-            updatedAt: new Date().toISOString()
-          }).select().single();
-          
-          if (wsInsertError) throw wsInsertError;
-          workspace = data;
+      if (!workspace) {
+        const { data, error: insertWsError } = await supabaseAdmin.from('workspaces').insert({
+          id: 'default-workspace-id',
+          name: 'Transfer Legacy HQ',
+          slug: 'tl-hq',
+          updated_at: new Date().toISOString()
+        }).select().single();
+        
+        if (insertWsError) {
+          console.error('[Bootstrap] workspaces creation failed:', insertWsError.message);
         }
+        workspace = data;
+      }
 
-        // Sync public User table entry
-        if (workspace && targetAuthUser) {
-          const { data: dbUser, error: dbFetchError } = await supabaseAdmin.from('User').select('*').eq('email', adminEmail).single();
-          
-          if (!dbUser) {
-            await supabaseAdmin.from('User').insert({
-              id: targetAuthUser.id,
-              email: adminEmail,
-              role: 'SUPER_ADMIN',
-              workspaceId: workspace.id,
-              name: 'System Super Admin',
-              passwordHash: 'SB_MANAGED',
-              updatedAt: new Date().toISOString()
-            });
-          } else {
-            await supabaseAdmin.from('User').update({ 
-              role: 'SUPER_ADMIN',
-              id: targetAuthUser.id,
-              updatedAt: new Date().toISOString()
-            }).eq('email', adminEmail);
+      if (workspace && targetAuthUser) {
+        const { data: dbUser, error: fetchUserError } = await supabaseAdmin.from('users').select('*').eq('email', adminEmail).maybeSingle();
+        if (fetchUserError) {
+          console.error('[Bootstrap] users fetch error:', fetchUserError.message);
+        }
+        
+        if (!dbUser) {
+          const { error: insertUserError } = await supabaseAdmin.from('users').insert({
+            id: targetAuthUser.id,
+            email: adminEmail,
+            role: 'SUPER_ADMIN',
+            workspace_id: workspace.id,
+            name: 'System Super Admin',
+            password_hash: 'SB_MANAGED',
+            updated_at: new Date().toISOString()
+          });
+          if (insertUserError) {
+            console.error('[Bootstrap] user creation failed:', insertUserError.message);
           }
-          console.log('[Bootstrap] Database records synced successfully.');
+        } else {
+          await supabaseAdmin.from('users').update({ role: 'SUPER_ADMIN' }).eq('email', adminEmail);
         }
-      } catch (dbErr: any) {
-        console.error('[Bootstrap] DATABASE SYNC ERROR:', dbErr.message);
-        if (dbErr.message?.includes('Invalid schema: connect')) {
-          console.error('');
-          console.error('===============================================================');
-          console.error('CRITICAL: The "connect" schema is NOT EXPOSED in your Supabase!');
-          console.error('To fix database errors, you MUST go to:');
-          console.error('Supabase settings -> API -> Exposed schemas');
-          console.error('And check the box for "connect", then save.');
-          console.error('===============================================================');
-          console.error('');
-        }
+        console.log('[Bootstrap] Admin sync complete.');
       }
     } catch (err: any) {
-      console.error('[Bootstrap] CRITICAL FAILURE:', err.message || err);
+      console.error('[Bootstrap] Error:', err.message || err);
     }
   }
-  await bootstrap();
+
+  // Run bootstrap in the background to not block app startup
+  bootstrap().catch(err => console.error('[Bootstrap Background Error]', err));
 
   // --- API ROUTES ---
 
@@ -168,19 +127,69 @@ async function startServer() {
   const api = express.Router();
   api.use(authMiddleware);
 
+  // Health check
+  api.get('/health', async (req, res) => {
+    try {
+      const results: any = {};
+      
+      const tables = ['users', 'workspaces', 'leads', 'templates', 'campaigns'];
+      for (const table of tables) {
+        const { data, error, count } = await supabaseAdmin.from(table).select('*', { count: 'exact', head: true });
+        results[table] = error ? { error: error.message, code: error.code } : { ok: true, count };
+      }
+      
+      res.json({ 
+        status: 'ok',
+        database: results,
+        env: {
+          hasUrl: !!process.env.SUPABASE_URL || !!process.env.VITE_SUPABASE_URL,
+          hasSecretKey: !!process.env.SUPABASE_SECRET_KEY,
+          hasAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY,
+          adminEmail: process.env.ADMIN_EMAIL || 'admin@transferlegacy.com'
+        }
+      });
+    } catch (e: any) {
+      res.status(500).json({ status: 'error', error: e.message });
+    }
+  });
+
   // Leads
   api.get('/leads', async (req, res) => {
     try {
       const data = await LeadService.getLeads(req.user!.workspaceId, req.query);
       res.json(data);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { 
+      console.error('[API] GET /leads failure:', {
+        message: e.message,
+        stack: e.stack,
+        workspaceId: req.user?.workspaceId
+      });
+      res.status(500).json({ error: e.message || 'Internal Server Error' }); 
+    }
   });
 
   api.post('/leads', async (req, res) => {
     try {
       const data = await LeadService.createLead(req.user!.workspaceId, req.body);
       res.json(data);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { 
+      console.error('[API] POST /leads failure:', e);
+      res.status(500).json({ error: e.message || 'Internal Server Error' }); 
+    }
+  });
+
+  api.post('/leads/bulk', async (req, res) => {
+    try {
+      const { leads } = req.body;
+      if (!Array.isArray(leads)) {
+        return res.status(400).json({ error: 'Leads must be an array' });
+      }
+      const data = await LeadService.bulkCreateLeads(req.user!.workspaceId, leads);
+      res.json(data);
+    } catch (e: any) {
+      console.error('[API] POST /leads/bulk failure:', e);
+      res.status(500).json({ error: e.message || 'Internal Server Error' });
+    }
   });
 
   // Profile
@@ -191,11 +200,11 @@ async function startServer() {
   // Login Logging
   api.post('/auth/log-login', async (req, res) => {
     try {
-      await supabaseAdmin.from('LoginLog').insert({
-        userId: req.user!.id,
+      await supabaseAdmin.from('login_logs').insert({
+        user_id: req.user!.id,
         email: req.user!.email,
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
+        ip_address: req.ip,
+        user_agent: req.headers['user-agent'],
         status: 'SUCCESS'
       });
       res.json({ success: true });
@@ -217,7 +226,10 @@ async function startServer() {
     try {
       const data = await TemplateService.getTemplates(req.user!.workspaceId);
       res.json(data);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { 
+      console.error('[API] GET /templates failure:', e);
+      res.status(500).json({ error: e.message || 'Internal Server Error' }); 
+    }
   });
 
   // Analytics
@@ -232,9 +244,9 @@ async function startServer() {
   api.get('/domains', async (req, res) => {
     try {
       const { data: domains, error } = await supabaseAdmin
-        .from('Domain')
+        .from('domains')
         .select('*')
-        .eq('workspaceId', req.user!.workspaceId);
+        .eq('workspace_id', req.user!.workspaceId);
       
       if (error) throw error;
       res.json(domains);
@@ -244,10 +256,10 @@ async function startServer() {
   api.post('/domains', async (req, res) => {
     try {
       const { data: domain, error } = await supabaseAdmin
-        .from('Domain')
+        .from('domains')
         .insert({
           ...req.body,
-          workspaceId: req.user!.workspaceId
+          workspace_id: req.user!.workspaceId
         })
         .select()
         .single();
@@ -261,9 +273,9 @@ async function startServer() {
   api.get('/users', async (req, res) => {
     try {
       const { data: users, error } = await supabaseAdmin
-        .from('User')
-        .select('id, email, name, role, createdAt')
-        .eq('workspaceId', req.user!.workspaceId);
+        .from('users')
+        .select('id, email, name, role, created_at')
+        .eq('workspace_id', req.user!.workspaceId);
       
       if (error) throw error;
       res.json(users);

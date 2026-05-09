@@ -95,7 +95,7 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
         </div>
 
         {formData.isScheduled && (
-          <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
                 <Calendar size={14} className="text-neutral-500" />

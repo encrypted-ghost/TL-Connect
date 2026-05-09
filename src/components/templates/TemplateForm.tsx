@@ -22,7 +22,7 @@ export function TemplateForm({ initialData, onSubmit, onCancel, isSubmitting }: 
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="name">Template Name</Label>
           <Input 
@@ -86,13 +86,13 @@ export function TemplateForm({ initialData, onSubmit, onCancel, isSubmitting }: 
             <textarea
               value={formData.bodyHtml}
               onChange={e => setFormData({ ...formData, bodyHtml: e.target.value })}
-              className="w-full h-80 p-4 bg-neutral-950 border border-neutral-800 rounded-lg font-mono text-sm focus:outline-none focus:ring-1 focus:ring-neutral-700"
+              className="w-full h-48 sm:h-80 p-4 bg-neutral-950 border border-neutral-800 rounded-lg font-mono text-sm focus:outline-none focus:ring-1 focus:ring-neutral-700"
               placeholder="<h1>Hi {{first_name}}</h1>..."
             />
           </TabsContent>
           <TabsContent value="preview" className="mt-2">
             <div 
-              className="w-full h-80 p-4 bg-white rounded-lg overflow-auto prose prose-sm max-w-none text-black"
+              className="w-full h-48 sm:h-80 p-4 bg-white rounded-lg overflow-auto prose prose-sm max-w-none text-black"
               dangerouslySetInnerHTML={{ __html: formData.bodyHtml.replace(/{{.*?}}/g, '<span class="bg-yellow-200 px-1 rounded">Variable</span>') }}
             />
           </TabsContent>

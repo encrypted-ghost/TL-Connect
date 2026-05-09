@@ -3,11 +3,11 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 export class TemplateService {
   static async getTemplates(workspaceId: string) {
     const { data, error } = await supabaseAdmin
-      .from('Template')
+      .from('templates')
       .select('*')
-      .eq('workspaceId', workspaceId)
-      .eq('isDeleted', false)
-      .order('createdAt', { ascending: false });
+      .eq('workspace_id', workspaceId)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
     return data;
@@ -15,12 +15,12 @@ export class TemplateService {
 
   static async getTemplate(id: string, workspaceId: string) {
     const { data: template, error } = await supabaseAdmin
-      .from('Template')
+      .from('templates')
       .select('*')
       .eq('id', id)
       .single();
     
-    if (error || !template || template.workspaceId !== workspaceId) {
+    if (error || !template || (template as any).workspace_id !== workspaceId) {
       throw new Error('Template not found');
     }
     return template;
@@ -28,11 +28,14 @@ export class TemplateService {
 
   static async createTemplate(workspaceId: string, data: any) {
     const { data: template, error } = await supabaseAdmin
-      .from('Template')
+      .from('templates')
       .insert({
-        ...data,
-        workspaceId,
-        isDeleted: false
+        name: data.name,
+        subject: data.subject,
+        body_html: data.bodyHtml || data.body_html,
+        category: data.category,
+        workspace_id: workspaceId,
+        is_deleted: false
       })
       .select()
       .single();
@@ -45,9 +48,17 @@ export class TemplateService {
     // Verify ownership
     await this.getTemplate(id, workspaceId);
     
+    const formatted = {
+      name: data.name,
+      subject: data.subject,
+      body_html: data.bodyHtml || data.body_html,
+      category: data.category,
+      updated_at: new Date().toISOString()
+    };
+
     const { data: template, error } = await supabaseAdmin
-      .from('Template')
-      .update(data)
+      .from('templates')
+      .update(formatted)
       .eq('id', id)
       .select()
       .single();
@@ -60,8 +71,8 @@ export class TemplateService {
     await this.getTemplate(id, workspaceId);
     
     const { data, error } = await supabaseAdmin
-      .from('Template')
-      .update({ isDeleted: true })
+      .from('templates')
+      .update({ is_deleted: true })
       .eq('id', id)
       .select()
       .single();
@@ -72,9 +83,9 @@ export class TemplateService {
 
   static async seedDefaults(workspaceId: string) {
     const { count, error: countError } = await supabaseAdmin
-      .from('Template')
+      .from('templates')
       .select('*', { count: 'exact', head: true })
-      .eq('workspaceId', workspaceId);
+      .eq('workspace_id', workspaceId);
     
     if (countError) throw countError;
     if (count && count > 0) return;
@@ -84,19 +95,21 @@ export class TemplateService {
         name: 'Welcome Email',
         subject: 'Welcome to TL Connect!',
         category: 'Onboarding',
-        bodyHtml: `<h1>Hi {{first_name}}!</h1><p>We are thrilled to have you on board. TL Connect is here to help you secure your legacy.</p><p>Best,<br>The Team</p>`
+        body_html: `<h1>Hi {{first_name}}!</h1><p>We are thrilled to have you on board. TL Connect is here to help you secure your legacy.</p><p>Best,<br>The Team</p>`,
+        workspace_id: workspaceId
       },
       {
         name: 'Follow-up (Day 3)',
         subject: 'Quick question about your setup',
         category: 'Nurture',
-        bodyHtml: `<p>Hi {{first_name}},</p><p>I noticed you haven't finished setting up your vault yet. Is there anything I can help with?</p><p>Best,<br>Enterprise Team</p>`
+        body_html: `<p>Hi {{first_name}},</p><p>I noticed you haven't finished setting up your vault yet. Is there anything I can help with?</p><p>Best,<br>Enterprise Team</p>`,
+        workspace_id: workspaceId
       }
     ];
 
     const { error: insertError } = await supabaseAdmin
-      .from('Template')
-      .insert(defaults.map(t => ({ ...t, workspaceId })));
+      .from('templates')
+      .insert(defaults);
 
     if (insertError) throw insertError;
   }

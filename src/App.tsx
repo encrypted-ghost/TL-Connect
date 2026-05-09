@@ -6,13 +6,14 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/src/lib/AuthContext';
 import { Login } from '@/src/components/auth/Login';
-import { LogOut, LayoutDashboard, Users, Send, Mail, Globe, Zap, Search, Bell, MoreHorizontal, Plus, Filter, Inbox, Layout, Settings, ChevronRight, ShieldCheck, Activity as ActivityIcon, FileText, Trash2, CheckCircle, AlertCircle } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Send, Mail, Globe, Zap, Search, Bell, MoreHorizontal, Plus, Filter, Inbox, Layout, Settings, ChevronRight, ShieldCheck, Activity as ActivityIcon, FileText, Trash2, CheckCircle, AlertCircle, Menu, X, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
 import { CommandMenu } from '@/src/components/ui/command-menu';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/src/components/ui/dialog';
 import { LeadForm } from '@/src/components/leads/LeadForm';
 import { LeadsTable } from '@/src/components/leads/LeadsTable';
+import { CSVImportDialog } from '@/src/components/leads/CSVImportDialog';
 import { TemplateList } from '@/src/components/templates/TemplateList';
 import { TemplateForm } from '@/src/components/templates/TemplateForm';
 import { CampaignList } from '@/src/components/campaigns/CampaignList';
@@ -33,6 +34,9 @@ export default function App() {
   const { user, profile, loading, logout } = useAuth();
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [stats, setStats] = useState<any>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [refreshCounter, setRefreshCounter] = useState(0);
 
   useEffect(() => {
     if (!user) return;
@@ -41,8 +45,8 @@ export default function App() {
       try {
         const res = await apiClient.get('/analytics/overview');
         setStats(res.data);
-      } catch (error) {
-        console.error('Fetch stats error:', error);
+      } catch (error: any) {
+        console.error('Fetch stats error:', error.response?.data || error.message);
       }
     };
     fetchStats();
@@ -77,6 +81,7 @@ export default function App() {
     // Basic navigation
     if (['dashboard', 'leads', 'campaigns', 'templates', 'inbox', 'domains', 'automations'].includes(action)) {
       setCurrentView(action as View);
+      setMobileMenuOpen(false);
       
       if (payload) {
         toast.success(`Navigating to ${payload.name || payload.firstName || action}`);
@@ -98,13 +103,40 @@ export default function App() {
   return (
     <div className="flex h-screen w-full bg-[#09090b] text-[#fafafa] font-sans overflow-hidden select-none">
       <CommandMenu onSelectAction={handleAction} />
+      <CSVImportDialog 
+        isOpen={isImportModalOpen} 
+        onOpenChange={setIsImportModalOpen}
+        onSuccess={() => {
+          setRefreshCounter(prev => prev + 1);
+          setCurrentView('leads');
+          toast.success('Leads list updated');
+        }}
+      />
+
+      {/* Mobile Sidebar Overlay */}
+      {mobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-sm" 
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 border-r border-[#27272a] flex flex-col bg-[#09090b] z-20">
-        <div className="px-6 py-10 flex flex-col items-start gap-4">
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-40 w-64 transform bg-[#09090b] border-r border-[#27272a] flex flex-col transition-transform duration-300 md:relative md:translate-x-0 h-full",
+        mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="px-6 py-8 md:py-10 flex flex-col items-start gap-4">
+          <div className="flex items-center justify-between w-full md:hidden mb-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Menu</span>
+            <button onClick={() => setMobileMenuOpen(false)} className="text-neutral-500 hover:text-white p-1">
+              <X size={16} />
+            </button>
+          </div>
           <div className="relative group cursor-pointer" onClick={() => setCurrentView('dashboard')}>
             <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl blur opacity-20 group-hover:opacity-60 transition duration-1000"></div>
-            <div className="relative w-16 h-16 rounded-xl flex items-center justify-center p-1 transition-colors">
-              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+            <div className="relative w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-colors overflow-hidden">
+              <img src="/tl-connect-logo.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
           </div>
           <div className="flex flex-col space-y-0.5">
@@ -124,31 +156,31 @@ export default function App() {
             icon={<LayoutDashboard size={16} />} 
             label="Command Center" 
             active={currentView === 'dashboard'} 
-            onClick={() => setCurrentView('dashboard')} 
+            onClick={() => handleAction('dashboard')} 
           />
           <SidebarNavButton 
             icon={<Users size={16} />} 
             label="Lead Matrix" 
             active={currentView === 'leads'} 
-            onClick={() => setCurrentView('leads')} 
+            onClick={() => handleAction('leads')} 
           />
           <SidebarNavButton 
             icon={<Send size={16} />} 
             label="Outreach" 
             active={currentView === 'campaigns'} 
-            onClick={() => setCurrentView('campaigns')} 
+            onClick={() => handleAction('campaigns')} 
           />
           <SidebarNavButton 
             icon={<FileText size={16} />} 
             label="Blueprints" 
             active={currentView === 'templates'} 
-            onClick={() => setCurrentView('templates')} 
+            onClick={() => handleAction('templates')} 
           />
           <SidebarNavButton 
             icon={<Mail size={16} />} 
             label="Signal Inbox" 
             active={currentView === 'inbox'} 
-            onClick={() => setCurrentView('inbox')} 
+            onClick={() => handleAction('inbox')} 
           />
 
           <div className="text-[9px] uppercase tracking-[0.3em] text-neutral-500 font-black px-4 py-8 mb-1 opacity-50">Infrastructure</div>
@@ -156,20 +188,20 @@ export default function App() {
             icon={<Globe size={16} />} 
             label="DNS & Nodes" 
             active={currentView === 'domains'} 
-            onClick={() => setCurrentView('domains')} 
+            onClick={() => handleAction('domains')} 
           />
           <SidebarNavButton 
             icon={<Zap size={16} />} 
             label="Automations" 
             active={currentView === 'automations'} 
-            onClick={() => setCurrentView('automations')} 
+            onClick={() => handleAction('automations')} 
           />
           <div className="h-4"></div>
           <SidebarNavButton 
             icon={<Settings size={16} />} 
             label="System Config" 
             active={currentView === 'settings'} 
-            onClick={() => setCurrentView('settings')} 
+            onClick={() => handleAction('settings')} 
           />
         </nav>
 
@@ -209,20 +241,26 @@ export default function App() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-full bg-[#09090b] overflow-hidden">
+      <main className="flex-1 flex flex-col h-full bg-[#09090b] overflow-hidden min-w-0">
         {/* Top Header */}
-        <header className="h-16 border-b border-[#27272a] px-8 flex items-center justify-between shrink-0 bg-[#09090b]/80 backdrop-blur-md z-10">
-          <div className="flex items-center gap-5 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.8)]"></div>
-              <span className="text-neutral-400 font-bold uppercase tracking-widest text-[10px]">T.L. Matrix</span>
+        <header className="h-16 border-b border-[#27272a] px-4 md:px-8 flex items-center justify-between shrink-0 bg-[#09090b]/80 backdrop-blur-md z-10 w-full">
+          <div className="flex items-center gap-3 md:gap-5 text-sm min-w-0">
+            <button 
+              className="md:hidden p-1.5 -ml-1 text-neutral-400 hover:text-white rounded-md hover:bg-white/5 active:bg-white/10"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              <Menu size={20} />
+            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <img src="/tl-connect-logo.png" alt="Logo" className="w-5 h-5 object-contain" />
+              <span className="hidden sm:inline text-neutral-400 font-bold uppercase tracking-widest text-[10px]">T.L. Connect</span>
             </div>
-            <span className="text-neutral-800 font-black">|</span>
-            <span className="text-white font-black uppercase tracking-widest text-[10px]">{currentView}</span>
+            <span className="hidden sm:inline text-neutral-800 font-black">|</span>
+            <span className="text-white font-black uppercase tracking-widest text-[10px] truncate">{currentView}</span>
           </div>
           
-          <div className="flex items-center gap-4">
-            <div className="relative flex items-center bg-[#18181b] border border-[#27272a] rounded px-3 py-1.5 w-64 group">
+          <div className="flex items-center gap-2 md:gap-4 shrink-0">
+            <div className="hidden sm:flex relative items-center bg-[#18181b] border border-[#27272a] rounded px-3 py-1.5 w-48 md:w-64 group">
               <Search className="w-4 h-4 text-neutral-500" />
               <input 
                 type="text" 
@@ -231,7 +269,10 @@ export default function App() {
               />
               <kbd className="text-[10px] bg-[#27272a] text-neutral-400 px-1.5 py-0.5 rounded border border-[#3f3f46] font-mono">⌘K</kbd>
             </div>
-            <button className="w-8 h-8 rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center hover:bg-neutral-700 transition-colors cursor-pointer relative">
+            <button 
+              onClick={() => toast.info('No new notifications')}
+              className="w-8 h-8 rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center hover:bg-neutral-700 transition-colors cursor-pointer relative"
+            >
               <Bell className="w-4 h-4 text-neutral-400" />
               <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-indigo-500 rounded-full border border-[#09090b]"></span>
             </button>
@@ -239,7 +280,7 @@ export default function App() {
         </header>
 
         {/* View Content */}
-        <div className="flex-1 overflow-y-auto p-8 scrollbar-thin scrollbar-thumb-neutral-800">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-thin scrollbar-thumb-neutral-800">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentView}
@@ -249,7 +290,13 @@ export default function App() {
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="h-full"
             >
-              <ViewRenderer view={currentView} stats={stats} />
+              <ViewRenderer 
+                key={`${currentView}-${refreshCounter}`}
+                view={currentView} 
+                stats={stats} 
+                onAction={handleAction} 
+                onImportCSV={() => setIsImportModalOpen(true)}
+              />
             </motion.div>
           </AnimatePresence>
         </div>
@@ -259,24 +306,30 @@ export default function App() {
 }
 
 // --- View Router ---
+interface ViewRendererProps {
+  view: View;
+  stats: any;
+  onAction: (action: string, payload?: any) => void;
+  onImportCSV: () => void;
+}
 
-function ViewRenderer({ view, stats }: { view: View, stats: any }) {
+function ViewRenderer({ view, stats, onAction, onImportCSV }: ViewRendererProps) {
   switch (view) {
-    case 'dashboard': return <DashboardView stats={stats} />;
-    case 'leads': return <LeadsView />;
+    case 'dashboard': return <DashboardView stats={stats} onAction={onAction} />;
+    case 'leads': return <LeadsView onImportCSV={onImportCSV} />;
     case 'campaigns': return <CampaignsView />;
     case 'templates': return <TemplatesView />;
-    case 'inbox': return <InboxView />;
+    case 'inbox': return <InboxView onAction={onAction} />;
     case 'domains': return <DomainManagement />;
-    case 'automations': return <AutomationsView />;
+    case 'automations': return <AutomationsView onAction={onAction} />;
     case 'settings': return <TeamSettings />;
-    default: return <DashboardView stats={stats} />;
+    default: return <DashboardView stats={stats} onAction={onAction} />;
   }
 }
 
 // --- Views Implementation ---
 
-function DashboardView({ stats }: { stats: any }) {
+function DashboardView({ stats, onAction }: { stats: any, onAction: (action: string, payload?: any) => void }) {
   const leadsCount = stats?.leadsCount || 0;
   const campaignsCount = stats?.campaignsCount || 0;
   const replyRate = stats?.replyRate || 0;
@@ -284,26 +337,26 @@ function DashboardView({ stats }: { stats: any }) {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Overview</h1>
           <p className="text-neutral-500 text-sm mt-1">Real-time performance metrics across your workspace.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" size="sm">Download Report</Button>
-          <Button variant="white" size="sm">+ New Lead</Button>
+          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={() => toast.success('Report generation started...')}>Download Report</Button>
+          <Button variant="white" size="sm" className="flex-1 sm:flex-none" onClick={() => onAction('leads')}>+ New Lead</Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Active Campaigns" value={campaignsCount.toString()} trend="Total campaigns in workspace" />
         <StatCard label="Leads Available" value={leadsCount.toLocaleString()} trend="Total CRM leads" />
         <StatCard label="Reply Rate" value={replyRate.toFixed(1) + "%"} trend={`${totalSent} total emails sent`} />
         <StatCard label="Domains" value="0" trend="Setup required" status="warning" />
       </div>
 
-      <div className="grid grid-cols-12 gap-6">
-        <div className="col-span-8 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-8 space-y-6">
           <EmptyState 
             icon={<Send size={40} className="text-neutral-500" />}
             title="No Active Campaigns"
@@ -311,7 +364,7 @@ function DashboardView({ stats }: { stats: any }) {
             action={<Button variant="white">Create First Campaign</Button>}
           />
         </div>
-        <div className="col-span-4 bg-[#09090b] border border-[#27272a] rounded-xl p-6">
+        <div className="lg:col-span-4 bg-[#09090b] border border-[#27272a] rounded-xl p-6">
           <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-6 flex items-center gap-2">
             <ActivityIcon size={14} /> Recent Activity
           </h3>
@@ -325,7 +378,7 @@ function DashboardView({ stats }: { stats: any }) {
   );
 }
 
-function LeadsView() {
+function LeadsView({ onImportCSV }: { onImportCSV?: () => void }) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -347,11 +400,14 @@ function LeadsView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold tracking-tight">Leads</h2>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={fetchLeads}>
             Refresh
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" onClick={onImportCSV}>
+            <Upload size={14} /> Import CSV
           </Button>
           
           <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
@@ -360,8 +416,8 @@ function LeadsView() {
                 <Plus size={14} /> Add Lead
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
+            <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader className="px-1">
                 <DialogTitle>Add New Lead</DialogTitle>
                 <DialogDescription>
                   Enter the details of the lead you'd like to reach out to.
@@ -391,8 +447,8 @@ function LeadsView() {
           title="Your Lead Pipeline is Empty"
           description="Add leads manually or import a CSV file to begin your outreach process."
           action={
-            <div className="flex gap-3">
-              <Button variant="outline">Import CSV</Button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button variant="outline" onClick={onImportCSV}>Import CSV</Button>
               <Button onClick={() => setIsAddModalOpen(true)} variant="white">Add Lead Manually</Button>
             </div>
           }
@@ -456,7 +512,7 @@ function CampaignsView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Campaigns</h2>
           <p className="text-sm text-neutral-500">Launch and monitor your automated outreach.</p>
@@ -467,8 +523,8 @@ function CampaignsView() {
               <Plus size={14} /> Create Campaign
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px] bg-neutral-950 border-neutral-800">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-[500px] bg-neutral-950 border-neutral-800 max-h-[90vh] overflow-y-auto">
+            <DialogHeader className="px-1">
               <DialogTitle>Create New Campaign</DialogTitle>
               <DialogDescription>
                 Define your outreach campaign and choose when to start.
@@ -568,7 +624,7 @@ function TemplatesView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Content Templates</h2>
           <p className="text-sm text-neutral-500">Manage your email sequences and one-off messaging.</p>
@@ -588,8 +644,8 @@ function TemplatesView() {
                 <Plus size={14} /> New Template
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[700px] bg-neutral-950 border-neutral-800">
-              <DialogHeader>
+            <DialogContent className="sm:max-w-[700px] bg-neutral-950 border-neutral-800 max-h-[90vh] overflow-y-auto">
+              <DialogHeader className="px-1">
                 <DialogTitle>{editingTemplate ? 'Edit Template' : 'Create New Template'}</DialogTitle>
                 <DialogDescription>
                   Draft your messaging using HTML or plain text with dynamic variables.
@@ -633,7 +689,7 @@ function TemplatesView() {
   );
 }
 
-function InboxView() {
+function InboxView({ onAction }: { onAction: (action: string) => void }) {
   return (
     <div className="h-full flex flex-col">
        <div className="flex items-center justify-between mb-6">
@@ -645,6 +701,7 @@ function InboxView() {
         icon={<Inbox size={48} className="text-neutral-600" />}
         title="Inbox Zero"
         description="When leads reply to your campaigns, the conversations will appear here automatically."
+        action={<Button variant="white" onClick={() => onAction('campaigns')}>Check Campaign Status</Button>}
       />
     </div>
   );
@@ -655,7 +712,7 @@ function DomainsView() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Domain Management</h2>
-        <Button variant="white" size="sm" className="gap-2">
+        <Button variant="white" size="sm" className="gap-2" onClick={() => toast.info('Navigating to domain management...')}>
           <Plus size={14} /> Add Domain
         </Button>
       </div>
@@ -672,18 +729,18 @@ function DomainsView() {
         icon={<Globe size={48} className="text-neutral-600" />}
         title="No Domains Connected"
         description="Verify a domain to use it as a sender for your outreach campaigns."
-        action={<Button variant="white">Connect First Domain</Button>}
+        action={<Button variant="white" onClick={() => toast.info('Connect domain dialog coming soon...')}>Connect First Domain</Button>}
       />
     </div>
   );
 }
 
-function AutomationsView() {
+function AutomationsView({ onAction }: { onAction: (action: string) => void }) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Automations</h2>
-        <Button variant="white" size="sm" className="gap-2">
+        <Button variant="white" size="sm" className="gap-2" onClick={() => toast.info('Automation rules editor coming soon...')}>
           <Plus size={14} /> New Rule
         </Button>
       </div>
@@ -692,7 +749,7 @@ function AutomationsView() {
         icon={<Zap size={48} className="text-neutral-600" />}
         title="No Active Workflows"
         description="Set up automatic triggers to handle replies, bounces, or status changes."
-        action={<Button variant="white">Configure Slack Webhook</Button>}
+        action={<Button variant="white" onClick={() => toast.info('Slack integration is coming soon...')}>Configure Slack Webhook</Button>}
       />
     </div>
   );
