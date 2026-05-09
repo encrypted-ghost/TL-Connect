@@ -16,17 +16,10 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   
   // Email Providers
-  SENDPULSE_API_ID: z.string().optional(),
-  SENDPULSE_API_SECRET: z.string().optional(),
-});
-  
-  // Email Providers
-  SENDPULSE_API_ID: z.string().optional(),
-  SENDPULSE_API_SECRET: z.string().optional(),
+  MAILJET_API_KEY: z.string().optional(),
+  MAILJET_API_SECRET: z.string().optional(),
   
   // Infrastructure
-  CLOUDFLARE_API_KEY: z.string().optional(),
-  CLOUDFLARE_EMAIL: z.string().optional(),
   
   // Notifications
   SLACK_WEBHOOK_URL: z.string().optional(),

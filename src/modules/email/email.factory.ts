@@ -1,7 +1,8 @@
 import { config } from '@/src/config';
 import { env } from '@/src/config/env.config';
 import { IEmailProvider } from './provider.interface';
-import { SendPulseEmailProvider, MockEmailProvider } from './providers/sendpulse.impl';
+import { MockEmailProvider } from './providers/mock.impl';
+import { MailjetEmailProvider } from './providers/mailjet.impl';
 
 export class EmailProviderFactory {
   private static instance: IEmailProvider | null = null;
@@ -11,10 +12,10 @@ export class EmailProviderFactory {
 
     const providerType = config.email.provider;
 
-    if (providerType === 'sendpulse' && env.SENDPULSE_API_ID) {
-      this.instance = new SendPulseEmailProvider();
+    if (providerType === 'mailjet' && env.MAILJET_API_KEY) {
+      this.instance = new MailjetEmailProvider();
     } else {
-      // Default to mock if keys missing or explicitly set
+      // Default to mock if keys missing
       this.instance = new MockEmailProvider();
     }
 

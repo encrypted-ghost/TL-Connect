@@ -21,25 +21,69 @@ import {
   Settings,
   ChevronRight,
   ShieldCheck,
-  Activity as ActivityIcon
+  Activity as ActivityIcon,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
 import { CommandMenu } from '@/src/components/ui/command-menu';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/src/components/ui/dialog';
 import { LeadForm } from '@/src/components/leads/LeadForm';
+import { LeadsTable } from '@/src/components/leads/LeadsTable';
+import { TemplateList } from '@/src/components/templates/TemplateList';
+import { TemplateForm } from '@/src/components/templates/TemplateForm';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
 import { cn } from '@/src/lib/utils';
+import { apiClient } from '@/src/lib/apiClient';
 
-type View = 'dashboard' | 'leads' | 'campaigns' | 'inbox' | 'domains' | 'automations';
+import { useEffect } from 'react';
+
+type View = 'dashboard' | 'leads' | 'campaigns' | 'templates' | 'inbox' | 'domains' | 'automations';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [stats, setStats] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleAction = (action: string) => {
-    if (['dashboard', 'leads', 'campaigns', 'inbox', 'domains', 'automations'].includes(action)) {
+  useEffect(() => {
+    const init = async () => {
+      try {
+        // Try to bootstrap if it's the first run
+        await apiClient.post('/auth/bootstrap');
+        
+        // Fetch real analytics
+        const res = await apiClient.get('/analytics/overview');
+        setStats(res.data);
+      } catch (error) {
+        console.error('Initialization error:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    init();
+  }, []);
+
+  const handleAction = (action: string, payload?: any) => {
+    // Basic navigation
+    if (['dashboard', 'leads', 'campaigns', 'templates', 'inbox', 'domains', 'automations'].includes(action)) {
       setCurrentView(action as View);
+      
+      if (payload) {
+        toast.success(`Navigating to ${payload.name || payload.firstName || action}`);
+        // In a real app we might set an "activeItem" state here to highlight the result
+      }
+    } else if (action === 'create-lead') {
+      setCurrentView('leads');
+      // We'd need a better way to trigger the modal from here, 
+      // but for now navigating to the view is the standard behavior.
+      toast.info("Add a lead from the Leads view");
+    } else if (action === 'create-campaign') {
+      setCurrentView('campaigns');
+      toast.info("Create a campaign from the Campaigns view");
+    } else if (action === 'create-template') {
+      setCurrentView('templates');
+      toast.info("Create a template from the Templates view");
     } else {
       toast.info(`Action triggered: ${action}`);
     }
@@ -51,11 +95,15 @@ export default function App() {
       <CommandMenu onSelectAction={handleAction} />
       {/* Sidebar */}
       <aside className="w-64 border-r border-[#27272a] flex flex-col bg-[#09090b]">
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-8 h-8 rounded bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-            <Send className="w-5 h-5 text-white" />
-          </div>
-          <span className="font-semibold tracking-tight text-lg">TL Connect</span>
+        <div className="px-6 py-8 flex flex-col items-start gap-4">
+          <img 
+            src="/input_file_0.png" 
+            alt="TL Connect Logo" 
+            className="w-12 h-12 object-contain"
+          />
+          <span className="font-bold tracking-tight text-xl bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+            TL Connect
+          </span>
         </div>
 
         <nav className="flex-1 px-3 space-y-1">
@@ -77,6 +125,12 @@ export default function App() {
             label="Campaigns" 
             active={currentView === 'campaigns'} 
             onClick={() => setCurrentView('campaigns')} 
+          />
+          <SidebarNavButton 
+            icon={<FileText size={16} />} 
+            label="Templates" 
+            active={currentView === 'templates'} 
+            onClick={() => setCurrentView('templates')} 
           />
           <SidebarNavButton 
             icon={<Mail size={16} />} 
@@ -158,7 +212,7 @@ export default function App() {
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="h-full"
             >
-              <ViewRenderer view={currentView} />
+              <ViewRenderer view={currentView} stats={stats} />
             </motion.div>
           </AnimatePresence>
         </div>
@@ -169,11 +223,12 @@ export default function App() {
 
 // --- View Router ---
 
-function ViewRenderer({ view }: { view: View }) {
+function ViewRenderer({ view, stats }: { view: View, stats: any }) {
   switch (view) {
-    case 'dashboard': return <DashboardView />;
+    case 'dashboard': return <DashboardView stats={stats} />;
     case 'leads': return <LeadsView />;
     case 'campaigns': return <CampaignsView />;
+    case 'templates': return <TemplatesView />;
     case 'inbox': return <InboxView />;
     case 'domains': return <DomainsView />;
     case 'automations': return <AutomationsView />;
@@ -183,7 +238,12 @@ function ViewRenderer({ view }: { view: View }) {
 
 // --- Views Implementation ---
 
-function DashboardView() {
+function DashboardView({ stats }: { stats: any }) {
+  const leadsCount = stats?.leadsCount || 0;
+  const campaignsCount = stats?.campaignsCount || 0;
+  const replyRate = stats?.replyRate || 0;
+  const totalSent = stats?.totalSent || 0;
+
   return (
     <div className="space-y-8 pb-12">
       <div className="flex items-end justify-between">
@@ -198,9 +258,9 @@ function DashboardView() {
       </div>
 
       <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Active Campaigns" value="0" trend="No active campaigns" />
-        <StatCard label="Leads Contacted" value="0" trend="0% month-over-month" />
-        <StatCard label="Reply Rate" value="0.0%" trend="Not enough data" />
+        <StatCard label="Active Campaigns" value={campaignsCount.toString()} trend="Total campaigns in workspace" />
+        <StatCard label="Leads Available" value={leadsCount.toLocaleString()} trend="Total CRM leads" />
+        <StatCard label="Reply Rate" value={replyRate.toFixed(1) + "%"} trend={`${totalSent} total emails sent`} />
         <StatCard label="Domains" value="0" trend="Setup required" status="warning" />
       </div>
 
@@ -229,14 +289,31 @@ function DashboardView() {
 
 function LeadsView() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [leads, setLeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchLeads = async () => {
+    try {
+      const res = await apiClient.get('/leads');
+      setLeads(res.data);
+    } catch (err) {
+      console.error('Failed to fetch leads');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLeads();
+  }, []);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Leads</h2>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="gap-2 text-xs">
-            <Filter size={14} /> Filter
+          <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={fetchLeads}>
+            Refresh
           </Button>
           
           <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
@@ -253,7 +330,10 @@ function LeadsView() {
                 </DialogDescription>
               </DialogHeader>
               <LeadForm 
-                onSuccess={() => setIsAddModalOpen(false)} 
+                onSuccess={() => {
+                  setIsAddModalOpen(false);
+                  fetchLeads();
+                }} 
                 onCancel={() => setIsAddModalOpen(false)} 
               />
             </DialogContent>
@@ -261,17 +341,25 @@ function LeadsView() {
         </div>
       </div>
 
-      <EmptyState 
-        icon={<Users size={48} className="text-neutral-600" />}
-        title="Your Lead Pipeline is Empty"
-        description="Add leads manually or import a CSV file to begin your outreach process."
-        action={
-          <div className="flex gap-3">
-            <Button variant="outline">Import CSV</Button>
-            <Button onClick={() => setIsAddModalOpen(true)} variant="white">Add Lead Manually</Button>
-          </div>
-        }
-      />
+      {loading ? (
+        <div className="h-64 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+        </div>
+      ) : leads.length > 0 ? (
+        <LeadsTable leads={leads} />
+      ) : (
+        <EmptyState 
+          icon={<Users size={48} className="text-neutral-600" />}
+          title="Your Lead Pipeline is Empty"
+          description="Add leads manually or import a CSV file to begin your outreach process."
+          action={
+            <div className="flex gap-3">
+              <Button variant="outline">Import CSV</Button>
+              <Button onClick={() => setIsAddModalOpen(true)} variant="white">Add Lead Manually</Button>
+            </div>
+          }
+        />
+      )}
     </div>
   );
 }
@@ -292,6 +380,135 @@ function CampaignsView() {
         description="Connect a domain and create a template to launch your first campaign."
         action={<Button variant="white">Get Started</Button>}
       />
+    </div>
+  );
+}
+
+function TemplatesView() {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<any>(null);
+
+  const fetchTemplates = async () => {
+    try {
+      const res = await apiClient.get('/templates');
+      setTemplates(res.data);
+    } catch (err) {
+      toast.error('Failed to load templates');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const handleSeed = async () => {
+    try {
+      setLoading(true);
+      await apiClient.post('/templates/seed');
+      await fetchTemplates();
+      toast.success('Default templates seeded');
+    } catch (err) {
+      toast.error('Failed to seed templates');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (data: any) => {
+    try {
+      if (editingTemplate) {
+        await apiClient.patch(`/templates/${editingTemplate.id}`, data);
+        toast.success('Template updated');
+      } else {
+        await apiClient.post('/templates', data);
+        toast.success('Template created');
+      }
+      setIsModalOpen(false);
+      setEditingTemplate(null);
+      fetchTemplates();
+    } catch (err) {
+      toast.error('Failed to save template');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this template?')) return;
+    try {
+      await apiClient.delete(`/templates/${id}`);
+      toast.success('Template deleted');
+      fetchTemplates();
+    } catch (err) {
+      toast.error('Failed to delete template');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Content Templates</h2>
+          <p className="text-sm text-neutral-500">Manage your email sequences and one-off messaging.</p>
+        </div>
+        <div className="flex gap-2">
+          {templates.length === 0 && (
+            <Button variant="outline" size="sm" onClick={handleSeed}>
+              Seed References
+            </Button>
+          )}
+          <Dialog open={isModalOpen} onOpenChange={(open) => {
+            setIsModalOpen(open);
+            if (!open) setEditingTemplate(null);
+          }}>
+            <DialogTrigger asChild>
+              <Button variant="white" size="sm" className="gap-2">
+                <Plus size={14} /> New Template
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[700px] bg-neutral-950 border-neutral-800">
+              <DialogHeader>
+                <DialogTitle>{editingTemplate ? 'Edit Template' : 'Create New Template'}</DialogTitle>
+                <DialogDescription>
+                  Draft your messaging using HTML or plain text with dynamic variables.
+                </DialogDescription>
+              </DialogHeader>
+              <TemplateForm 
+                initialData={editingTemplate}
+                onSubmit={handleSubmit}
+                onCancel={() => {
+                  setIsModalOpen(false);
+                  setEditingTemplate(null);
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="h-64 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+        </div>
+      ) : templates.length > 0 ? (
+        <TemplateList 
+          templates={templates} 
+          onEdit={(t) => {
+            setEditingTemplate(t);
+            setIsModalOpen(true);
+          }}
+          onDelete={handleDelete}
+        />
+      ) : (
+        <EmptyState 
+          icon={<FileText size={48} className="text-neutral-600" />}
+          title="No Messaging Templates"
+          description="Create recurring messaging blocks to use in your campaigns."
+          action={<Button variant="white" onClick={() => setIsModalOpen(true)}>Create First Template</Button>}
+        />
+      )}
     </div>
   );
 }

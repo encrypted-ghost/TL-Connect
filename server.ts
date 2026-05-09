@@ -9,6 +9,8 @@ import { authMiddleware } from './src/lib/middleware';
 import { AnalyticsService } from './src/modules/analytics/analytics.service';
 import { AuthService } from './src/modules/auth/auth.service';
 import { QueueService } from './src/modules/queue/queue.service';
+import { CampaignService } from './src/modules/campaigns/campaign.service';
+import { TemplateService } from './src/modules/templates/template.service';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,11 +63,109 @@ async function startServer() {
     }
   });
 
+  // Campaigns
+  api.get('/campaigns', async (req, res) => {
+    try {
+      const campaigns = await CampaignService.getCampaigns(req.user!.workspaceId);
+      res.json(campaigns);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  api.get('/search', async (req, res) => {
+    const q = req.query.q as string;
+    if (!q || q.length < 2) return res.json({ leads: [], campaigns: [], templates: [] });
+    
+    try {
+      const workspaceId = req.user!.workspaceId;
+      const { db } = await import('./src/lib/supabase');
+      
+      const [leads, campaigns, templates] = await Promise.all([
+        LeadService.getLeads(workspaceId, { search: q, limit: 5 }),
+        db.from('Campaign').select('*').eq('workspaceId', workspaceId).ilike('name', `%${q}%`).limit(5),
+        db.from('Template').select('*').eq('workspaceId', workspaceId).ilike('name', `%${q}%`).limit(5)
+      ]);
+      
+      res.json({
+        leads: leads,
+        campaigns: campaigns.data || [],
+        templates: templates.data || []
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  api.post('/campaigns', async (req, res) => {
+    try {
+      const campaign = await CampaignService.createCampaign(req.user!.workspaceId, req.body);
+      res.json(campaign);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Analytics
   api.get('/analytics/overview', async (req, res) => {
     try {
       const metrics = await AnalyticsService.getWorkspaceMetrics(req.user!.workspaceId);
       res.json(metrics);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Templates
+  api.get('/templates', async (req, res) => {
+    try {
+      const templates = await TemplateService.getTemplates(req.user!.workspaceId);
+      res.json(templates);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  api.get('/templates/:id', async (req, res) => {
+    try {
+      const template = await TemplateService.getTemplate(req.params.id, req.user!.workspaceId);
+      res.json(template);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  api.post('/templates', async (req, res) => {
+    try {
+      const template = await TemplateService.createTemplate(req.user!.workspaceId, req.body);
+      res.json(template);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  api.patch('/templates/:id', async (req, res) => {
+    try {
+      const template = await TemplateService.updateTemplate(req.params.id, req.user!.workspaceId, req.body);
+      res.json(template);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  api.delete('/templates/:id', async (req, res) => {
+    try {
+      await TemplateService.deleteTemplate(req.params.id, req.user!.workspaceId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  api.post('/templates/seed', async (req, res) => {
+    try {
+      await TemplateService.seedDefaults(req.user!.workspaceId);
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

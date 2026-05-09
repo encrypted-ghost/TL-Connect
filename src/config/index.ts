@@ -18,7 +18,7 @@ export const config = {
     VIEWER: ['leads.view', 'campaigns.view', 'analytics.view'],
   },
   email: {
-    provider: 'sendpulse', // Default provider
+    provider: 'mailjet', // Default provider
     limits: {
       daily: 1000,
       interval: { min: 3, max: 5 }, // seconds

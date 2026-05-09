@@ -1,4 +1,5 @@
 import { db } from '../../lib/supabase';
+import { EmailProviderFactory } from '../email/email.factory';
 
 export class QueueService {
   private static isProcessing = false;
@@ -49,10 +50,40 @@ export class QueueService {
       // Mark as processing
       await db.from('QueueJob').update({ status: 'PROCESSING' }).eq('id', job.id);
 
-      // In production, execute the job here (e.g. email sending)
+      let success = true;
+      let lastError = null;
+
+      if (job.type === 'SEND_EMAIL') {
+        try {
+          const provider = EmailProviderFactory.getProvider();
+          const result = await provider.send(job.payload as any);
+          success = result.success;
+          lastError = result.error;
+        } catch (err: any) {
+          success = false;
+          lastError = err.message;
+        }
+      }
       
-      // Mark as completed
-      await db.from('QueueJob').update({ status: 'COMPLETED' }).eq('id', job.id);
+      if (success) {
+        // Mark as completed
+        await db.from('QueueJob').update({ 
+          status: 'COMPLETED',
+          completedAt: new Date().toISOString()
+        }).eq('id', job.id);
+      } else {
+        const newRetryCount = (job.retryCount || 0) + 1;
+        const maxRetries = 3;
+        const status = newRetryCount >= maxRetries ? 'FAILED' : 'PENDING';
+        
+        await db.from('QueueJob').update({ 
+          status,
+          retryCount: newRetryCount,
+          lastError,
+          // Exponential backoff
+          runAt: new Date(Date.now() + Math.pow(2, newRetryCount) * 5000).toISOString()
+        }).eq('id', job.id);
+      }
 
     } catch (error: any) {
       console.error('Queue Processing Error:', error);
