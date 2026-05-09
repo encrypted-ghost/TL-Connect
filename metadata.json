@@ -1,0 +1,17 @@
+{
+  "name": "TL Connect",
+  "description": "Production-grade internal outreach CRM and operational communication platform for Transfer Legacy.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "CRM",
+    "Email Campaigns",
+    "AI Outreach",
+    "Analytics",
+    "Multi-workspace",
+    "SendPulse Integration"
+  ]
+}

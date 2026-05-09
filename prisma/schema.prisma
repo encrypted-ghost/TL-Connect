@@ -1,0 +1,338 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- CORE SYSTEM ---
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  leads       Lead[]
+  companies   Company[]
+  campaigns   Campaign[]
+  templates   Template[]
+  domains     Domain[]
+  activity    Activity[]
+  auditLogs   AuditLog[]
+  settings    WorkspaceSettings?
+  tags        Tag[]
+}
+
+model WorkspaceSettings {
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  
+  emailDailyLimit Int   @default(1000)
+  timezone        String @default("UTC")
+  
+  slackWebhookUrl String?
+  
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String
+  avatarUrl     String?
+  role          Role      @default(AGENT)
+  status        UserStatus @default(ACTIVE)
+  
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id])
+  
+  activities    Activity[]
+  auditLogs     AuditLog[]
+  leadsOwned    Lead[]    @relation("LeadOwner")
+
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  AGENT
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+// --- CRM MODULE ---
+
+model Company {
+  id          String    @id @default(cuid())
+  name        String
+  website     String?
+  industry    String?
+  logoUrl     String?
+  notes       String?
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  
+  leads       Lead[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+model Lead {
+  id          String    @id @default(cuid())
+  email       String
+  firstName   String?
+  lastName    String?
+  title       String?
+  phone       String?
+  linkedinUrl String?
+  
+  status      LeadStatus @default(NEW)
+  score       Int       @default(0)
+  
+  companyId   String?
+  company     Company?  @relation(fields: [companyId], references: [id])
+  
+  ownerId     String?
+  owner       User?     @relation("LeadOwner", fields: [ownerId], references: [id])
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  
+  notes       Note[]
+  activities  Activity[]
+  tags        Tag[]
+  
+  customFields Json? // Record<string, any>
+
+  isDeleted   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([email, workspaceId])
+  @@index([workspaceId, status])
+  @@index([email])
+}
+
+enum LeadStatus {
+  NEW
+  TO_CONTACT
+  SENT
+  OPENED
+  CLICKED
+  REPLIED
+  INTERESTED
+  MEETING_BOOKED
+  CLOSED_WON
+  CLOSED_LOST
+  BOUNCED
+  UNSUBSCRIBED
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  content   String
+  
+  authorId  String?
+  
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Tag {
+  id          String    @id @default(cuid())
+  name        String
+  color       String?   @default("#3b82f6")
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  
+  leads       Lead[]
+  
+  createdAt   DateTime  @default(now())
+
+  @@unique([name, workspaceId])
+}
+
+// --- CAMPAIGN MODULE ---
+
+model Template {
+  id          String    @id @default(cuid())
+  name        String
+  subject     String
+  bodyText    String?
+  bodyHtml    String?
+  category    String?
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  
+  campaigns   Campaign[]
+  
+  isDeleted   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Campaign {
+  id            String         @id @default(cuid())
+  name          String
+  status        CampaignStatus @default(DRAFT)
+  
+  templateId    String
+  template      Template       @relation(fields: [templateId], references: [id])
+  
+  workspaceId   String
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id])
+  
+  senderId      String? // References a Domain/Account
+  
+  // Stats
+  statsSent     Int            @default(0)
+  statsOpened   Int            @default(0)
+  statsClicked  Int            @default(0)
+  statsReplied  Int            @default(0)
+  statsBounced  Int            @default(0)
+  statsUnsub    Int            @default(0)
+
+  scheduledAt   DateTime?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([workspaceId, status])
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+}
+
+model Domain {
+  id          String   @id @default(cuid())
+  domain      String
+  subdomain   String?
+  
+  isVerified  Boolean  @default(false)
+  dnsConfig   Json?    // Requirements for SPF, DKIM, DMARC
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([domain, workspaceId])
+}
+
+// --- INFRASTRUCTURE ---
+
+model QueueJob {
+  id          String    @id @default(cuid())
+  type        String    // SEND_EMAIL, SYNC_DNS, SYNC_INBOX
+  payload     Json
+  status      JobStatus @default(PENDING)
+  priority    Int       @default(0)
+  
+  retryCount  Int       @default(0)
+  maxRetries  Int       @default(3)
+  
+  lastError   String?
+  runAt       DateTime?
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  type        ActivityType
+  description String?
+  metadata    Json?
+  
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  
+  leadId      String?
+  lead        Lead?    @relation(fields: [leadId], references: [id])
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([leadId])
+}
+
+enum ActivityType {
+  EMAIL_SENT
+  EMAIL_OPENED
+  EMAIL_CLICKED
+  EMAIL_REPLIED
+  EMAIL_BOUNCED
+  LEAD_CREATED
+  LEAD_STATUS_CHANGED
+  NOTE_ADDED
+  MEETING_BOOKED
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String   // CREATE, UPDATE, DELETE
+  entity      String   // LEAD, CAMPAIGN, USER...
+  entityId    String
+  
+  previousData Json?
+  newData      Json?
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([entity, entityId])
+}
