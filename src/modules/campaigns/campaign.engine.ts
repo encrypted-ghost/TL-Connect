@@ -1,5 +1,5 @@
-import { supabaseAdmin } from '@/src/lib/supabaseAdmin';
-import { emailProvider } from '../email/email.provider';
+import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
+import { emailProvider } from '../email/email.provider.ts';
 
 export class CampaignEngine {
   static async processQueue() {
@@ -37,8 +37,9 @@ export class CampaignEngine {
       if (job.type === 'SEND_EMAIL') {
         const payload = job.payload as any;
         await emailProvider.send({
-          from: payload.from,
-          to: payload.to,
+          fromEmail: payload.fromEmail || payload.from,
+          fromName: payload.fromName || 'Transfer Legacy',
+          toEmail: payload.toEmail || payload.to,
           subject: payload.subject,
           html: payload.html,
           tags: [payload.campaignId],

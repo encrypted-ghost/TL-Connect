@@ -1,6 +1,6 @@
-import { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface';
+import { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface.ts';
 import Mailjet from 'node-mailjet';
-import { env } from '@/src/config/env.config';
+import { env } from '../../../config/env.config.ts';
 
 export class MailjetEmailProvider implements IEmailProvider {
   name = 'mailjet';

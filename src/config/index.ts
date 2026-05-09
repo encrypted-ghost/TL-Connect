@@ -1,4 +1,4 @@
-import { env } from './env.config';
+import { env } from './env.config.ts';
 
 export const config = {
   app: {

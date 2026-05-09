@@ -4,11 +4,12 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
 import { toast } from 'sonner';
-import { ShieldCheck, Lock, Activity } from 'lucide-react';
+import { ShieldCheck, Lock, Activity, Eye, EyeOff } from 'lucide-react';
 
 export function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { signIn } = useAuth();
 
@@ -19,8 +20,9 @@ export function Login() {
       await signIn(email, password);
       toast.success('Access Granted. Session established.');
     } catch (error: any) {
-      toast.error('Authentication failed. Check your security key.');
-      console.error(error);
+      const message = error.message || 'Authentication failed. Check your security key.';
+      toast.error(message);
+      console.error('Login error:', error);
     } finally {
       setLoading(false);
     }
@@ -68,15 +70,24 @@ export function Login() {
             
             <div className="space-y-2">
               <Label htmlFor="password" className="text-xs uppercase tracking-widest text-neutral-500 font-bold">Security Key</Label>
-              <Input 
-                id="password" 
-                type="password" 
-                placeholder="••••••••" 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="bg-neutral-950 border-neutral-800 focus:ring-indigo-500 h-11"
-              />
+              <div className="relative">
+                <Input 
+                  id="password" 
+                  type={showPassword ? "text" : "password"} 
+                  placeholder="••••••••" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="bg-neutral-950 border-neutral-800 focus:ring-indigo-500 h-11 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
 
             <Button 

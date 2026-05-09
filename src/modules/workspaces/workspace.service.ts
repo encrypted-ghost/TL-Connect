@@ -1,4 +1,4 @@
-import { db } from '../../lib/supabase';
+import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 
 /**
  * Workspace Management Service (Supabase Native)
@@ -11,7 +11,7 @@ export class WorkspaceService {
     const slug = name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]/g, '');
     
     // Create workspace
-    const { data: workspace, error } = await db
+    const { data: workspace, error } = await supabaseAdmin
       .from('Workspace')
       .insert([{ name, slug }])
       .select()
@@ -20,7 +20,7 @@ export class WorkspaceService {
     if (error) throw new Error(error.message);
 
     // Create default settings
-    await db.from('WorkspaceSettings').insert([{
+    await supabaseAdmin.from('WorkspaceSettings').insert([{
       workspaceId: workspace.id,
       emailDailyLimit: 1000,
       timezone: 'UTC'
@@ -33,7 +33,7 @@ export class WorkspaceService {
    * Get workspace with stats
    */
   static async getWorkspace(id: string) {
-    const { data: workspace, error } = await db
+    const { data: workspace, error } = await supabaseAdmin
       .from('Workspace')
       .select(`
         *,
@@ -53,7 +53,7 @@ export class WorkspaceService {
    * Update workspace settings
    */
   static async updateSettings(workspaceId: string, data: any) {
-    const { data: settings, error } = await db
+    const { data: settings, error } = await supabaseAdmin
       .from('WorkspaceSettings')
       .update(data)
       .eq('workspaceId', workspaceId)

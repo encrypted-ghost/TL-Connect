@@ -1,10 +1,10 @@
-import { db } from '../../lib/supabase';
+import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 
 export class LeadService {
   static async getLeads(workspaceId: string, options: any = {}) {
     const { status, search, limit = 50, offset = 0 } = options;
 
-    let query = db
+    let query = supabaseAdmin
       .from('Lead')
       .select(`
         *,
@@ -27,7 +27,7 @@ export class LeadService {
   }
 
   static async createLead(workspaceId: string, data: any) {
-    const { data: existing, error: fetchError } = await db
+    const { data: existing, error: fetchError } = await supabaseAdmin
       .from('Lead')
       .select('id, isDeleted')
       .eq('email', data.email)
@@ -36,7 +36,7 @@ export class LeadService {
 
     if (existing) {
       if (existing.isDeleted) {
-        const { data: restored, error: restError } = await db
+        const { data: restored, error: restError } = await supabaseAdmin
           .from('Lead')
           .update({ ...data, isDeleted: false })
           .eq('id', existing.id)
@@ -48,7 +48,7 @@ export class LeadService {
       throw new Error('Lead already exists');
     }
 
-    const { data: newLead, error: insertError } = await db
+    const { data: newLead, error: insertError } = await supabaseAdmin
       .from('Lead')
       .insert([{ ...data, workspaceId }])
       .select()

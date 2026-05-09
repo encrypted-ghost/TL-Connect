@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 
 export class CampaignService {
   static async getCampaigns(workspaceId: string) {

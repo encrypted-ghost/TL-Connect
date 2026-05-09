@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/src/lib/supabaseAdmin';
+import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 
 export class ActivityService {
   static async log(data: {

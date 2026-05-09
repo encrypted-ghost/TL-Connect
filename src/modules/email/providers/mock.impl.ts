@@ -1,4 +1,4 @@
-import { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface';
+import { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface.ts';
 
 export class MockEmailProvider implements IEmailProvider {
   name = 'mock';

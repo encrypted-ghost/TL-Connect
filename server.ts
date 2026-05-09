@@ -4,11 +4,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { authMiddleware } from './src/lib/middleware';
-import { AnalyticsService } from './src/modules/analytics/analytics.service';
-import { CampaignService } from './src/modules/campaigns/campaign.service';
-import { TemplateService } from './src/modules/templates/template.service';
-import { supabaseAdmin } from './src/lib/supabaseAdmin';
+import { authMiddleware } from './src/lib/middleware.ts';
+import { AnalyticsService } from './src/modules/analytics/analytics.service.ts';
+import { CampaignService } from './src/modules/campaigns/campaign.service.ts';
+import { TemplateService } from './src/modules/templates/template.service.ts';
+import { supabaseAdmin } from './src/lib/supabaseAdmin.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

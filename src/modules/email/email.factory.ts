@@ -1,8 +1,8 @@
-import { config } from '@/src/config';
-import { env } from '@/src/config/env.config';
-import { IEmailProvider } from './provider.interface';
-import { MockEmailProvider } from './providers/mock.impl';
-import { MailjetEmailProvider } from './providers/mailjet.impl';
+import { config } from '../../config/index.ts';
+import { env } from '../../config/env.config.ts';
+import { IEmailProvider } from './provider.interface.ts';
+import { MockEmailProvider } from './providers/mock.impl.ts';
+import { MailjetEmailProvider } from './providers/mailjet.impl.ts';
 
 export class EmailProviderFactory {
   private static instance: IEmailProvider | null = null;

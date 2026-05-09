@@ -1,5 +1,5 @@
-import { db } from '../../lib/supabase';
-import { EmailProviderFactory } from '../email/email.factory';
+import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
+import { EmailProviderFactory } from '../email/email.factory.ts';
 
 export class QueueService {
   private static isProcessing = false;
@@ -8,7 +8,7 @@ export class QueueService {
    * Add a job to the queue using Supabase
    */
   static async enqueue(type: string, payload: any, priority = 0) {
-    const { data, error } = await db
+    const { data, error } = await supabaseAdmin
       .from('QueueJob')
       .insert([{ 
         type, 
@@ -32,7 +32,7 @@ export class QueueService {
     this.isProcessing = true;
 
     try {
-      const { data: job, error: fetchError } = await db
+      const { data: job, error: fetchError } = await supabaseAdmin
         .from('QueueJob')
         .select('*')
         .eq('status', 'PENDING')
@@ -48,7 +48,7 @@ export class QueueService {
       }
 
       // Mark as processing
-      await db.from('QueueJob').update({ status: 'PROCESSING' }).eq('id', job.id);
+      await supabaseAdmin.from('QueueJob').update({ status: 'PROCESSING' }).eq('id', job.id);
 
       let success = true;
       let lastError = null;
@@ -67,7 +67,7 @@ export class QueueService {
       
       if (success) {
         // Mark as completed
-        await db.from('QueueJob').update({ 
+        await supabaseAdmin.from('QueueJob').update({ 
           status: 'COMPLETED',
           completedAt: new Date().toISOString()
         }).eq('id', job.id);
@@ -76,7 +76,7 @@ export class QueueService {
         const maxRetries = 3;
         const status = newRetryCount >= maxRetries ? 'FAILED' : 'PENDING';
         
-        await db.from('QueueJob').update({ 
+        await supabaseAdmin.from('QueueJob').update({ 
           status,
           retryCount: newRetryCount,
           lastError,
