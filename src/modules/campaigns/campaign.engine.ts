@@ -4,12 +4,12 @@ import { emailProvider } from '../email/email.provider.ts';
 export class CampaignEngine {
   static async processQueue() {
     const { data: jobs, error } = await supabaseAdmin
-      .from('QueueJob')
+      .from('queue_jobs')
       .select('*')
       .eq('status', 'PENDING')
-      .lte('runAt', new Date().toISOString())
+      .lte('run_at', new Date().toISOString())
       .order('priority', { ascending: false })
-      .order('createdAt', { ascending: true })
+      .order('created_at', { ascending: true })
       .limit(10);
 
     if (error || !jobs) return;
@@ -21,7 +21,7 @@ export class CampaignEngine {
 
   private static async processJob(jobId: string) {
     const { data: job, error: getError } = await supabaseAdmin
-      .from('QueueJob')
+      .from('queue_jobs')
       .select('*')
       .eq('id', jobId)
       .single();
@@ -29,7 +29,7 @@ export class CampaignEngine {
     if (getError || !job) return;
 
     await supabaseAdmin
-      .from('QueueJob')
+      .from('queue_jobs')
       .update({ status: 'PROCESSING' })
       .eq('id', jobId);
 
@@ -48,42 +48,42 @@ export class CampaignEngine {
 
         // Update campaign stats (manual increment)
         const { data: campaign } = await supabaseAdmin
-          .from('Campaign')
-          .select('statsSent')
+          .from('campaigns')
+          .select('stats_sent')
           .eq('id', payload.campaignId)
           .single();
         
         await supabaseAdmin
-          .from('Campaign')
-          .update({ statsSent: (campaign?.statsSent || 0) + 1 })
+          .from('campaigns')
+          .update({ stats_sent: (campaign?.stats_sent || 0) + 1 })
           .eq('id', payload.campaignId);
 
         // Record activity
         await supabaseAdmin
-          .from('Activity')
+          .from('activities')
           .insert({
             type: 'EMAIL_SENT',
             description: `Sent email to ${payload.to}`,
-            leadId: payload.leadId,
-            workspaceId: payload.workspaceId,
+            lead_id: payload.leadId,
+            workspace_id: payload.workspaceId,
           });
       }
 
       await supabaseAdmin
-        .from('QueueJob')
+        .from('queue_jobs')
         .update({ status: 'COMPLETED' })
         .eq('id', jobId);
     } catch (error) {
       console.error('Job processing failed:', error);
-      const retryCount = (job.retryCount || 0) + 1;
+      const retryCount = (job.retry_count || 0) + 1;
       
       await supabaseAdmin
-        .from('QueueJob')
+        .from('queue_jobs')
         .update({
-          status: retryCount >= (job.maxRetries || 3) ? 'FAILED' : 'PENDING',
-          retryCount,
-          lastError: error instanceof Error ? error.message : String(error),
-          runAt: new Date(Date.now() + Math.pow(2, retryCount) * 1000).toISOString(),
+          status: retryCount >= (job.max_retries || 3) ? 'FAILED' : 'PENDING',
+          retry_count: retryCount,
+          last_error: error instanceof Error ? error.message : String(error),
+          run_at: new Date(Date.now() + Math.pow(2, retryCount) * 1000).toISOString(),
         })
         .eq('id', jobId);
     }

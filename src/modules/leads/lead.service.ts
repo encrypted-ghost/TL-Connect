@@ -34,7 +34,7 @@ export class LeadService {
       title: data.title,
       phone: data.phone,
       linkedin_url: data.linkedinUrl,
-      status: data.status,
+      status: data.status || 'NEW',
       company_id: data.companyId,
       owner_id: data.ownerId,
       custom_fields: data.customFields
@@ -96,5 +96,16 @@ export class LeadService {
 
     if (error) throw new Error(error.message);
     return data;
+  }
+
+  static async deleteLead(id: string, workspace_id: string) {
+    const { error } = await supabaseAdmin
+      .from('leads')
+      .delete()
+      .eq('id', id)
+      .eq('workspace_id', workspace_id);
+
+    if (error) throw new Error(error.message);
+    return { success: true };
   }
 }

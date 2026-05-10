@@ -15,7 +15,7 @@ export const supabaseAdmin = createClient(
   supabaseKey,
   {
     db: {
-      schema: 'connect'
+      schema: 'public'
     },
     auth: {
       persistSession: false,

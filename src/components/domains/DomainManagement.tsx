@@ -49,6 +49,24 @@ export function DomainManagement() {
     }
   };
 
+  const handleDeleteDomain = async (id: string) => {
+    if (!confirm('Are you sure you want to remove this domain?')) return;
+    try {
+      await apiClient.delete(`/domains/${id}`);
+      toast.success('Domain removed');
+      fetchDomains();
+    } catch (err) {
+      toast.error('Failed to remove domain');
+    }
+  };
+
+  const showDnsConfig = (domain: string) => {
+    toast.info(`DNS Configuration for ${domain}`, {
+      description: "Please add the following TXT record to your DNS provider: 'v=spf1 include:mail.transferlegacy.com ~all'",
+      duration: 5000
+    });
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
@@ -109,7 +127,12 @@ export function DomainManagement() {
 
               <div className="flex items-center gap-4">
                 {!d.isVerified && (
-                  <Button variant="outline" size="sm" className="text-[10px] uppercase font-bold tracking-wider border-neutral-800 h-8">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="text-[10px] uppercase font-bold tracking-wider border-neutral-800 h-8"
+                    onClick={() => showDnsConfig(d.domain)}
+                  >
                     View DNS Config
                   </Button>
                 )}
@@ -117,6 +140,7 @@ export function DomainManagement() {
                   variant="ghost" 
                   size="icon" 
                   className="text-neutral-500 hover:text-red-400 h-8 w-8 hover:bg-red-500/10"
+                  onClick={() => handleDeleteDomain(d.id)}
                 >
                   <Trash2 size={16} />
                 </Button>

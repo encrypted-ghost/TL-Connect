@@ -1,7 +1,17 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 
 export class AnalyticsService {
+  private static cache: Record<string, { data: any, timestamp: number }> = {};
+  private static CACHE_TTL = 30000; // 30 seconds
+
   static async getWorkspaceMetrics(workspaceId: string) {
+    const now = Date.now();
+    const cached = this.cache[workspaceId];
+    
+    if (cached && (now - cached.timestamp < this.CACHE_TTL)) {
+      return cached.data;
+    }
+
     const [leadsRes, campaignsRes, statsRes] = await Promise.all([
       supabaseAdmin.from('leads').select('*', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
       supabaseAdmin.from('campaigns').select('*', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
@@ -28,13 +38,20 @@ export class AnalyticsService {
     const totalReplied = stats.statsReplied || 0;
     const totalBounced = stats.statsBounced || 0;
 
-    return {
+    const result = {
       leadsCount: leadsRes.count || 0,
       campaignsCount: campaignsRes.count || 0,
       totalSent,
       replyRate: totalSent > 0 ? (totalReplied / totalSent) * 100 : 0,
       bounceRate: totalSent > 0 ? (totalBounced / totalSent) * 100 : 0,
     };
+
+    this.cache[workspaceId] = {
+      data: result,
+      timestamp: Date.now()
+    };
+
+    return result;
   }
 
   static async getCampaignPerformance(campaignId: string) {

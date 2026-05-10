@@ -217,7 +217,7 @@ export default function App() {
           </div>
           <div className="mt-6 flex items-center justify-between px-2">
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-neutral-800 to-neutral-900 border border-neutral-700 flex items-center justify-center text-xs font-black text-indigo-400 shadow-xl uppercase">
+              <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-700 border border-indigo-500/30 flex items-center justify-center text-xs font-black text-white shadow-[0_0_15px_rgba(99,102,241,0.2)] uppercase">
                 {user.email?.[0] || 'U'}
               </div>
               <div className="flex flex-col min-w-0">
@@ -330,10 +330,27 @@ function ViewRenderer({ view, stats, onAction, onImportCSV }: ViewRendererProps)
 // --- Views Implementation ---
 
 function DashboardView({ stats, onAction }: { stats: any, onAction: (action: string, payload?: any) => void }) {
+  const [activities, setActivities] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  
   const leadsCount = stats?.leadsCount || 0;
   const campaignsCount = stats?.campaignsCount || 0;
   const replyRate = stats?.replyRate || 0;
   const totalSent = stats?.totalSent || 0;
+
+  useEffect(() => {
+    const fetchActivity = async () => {
+      try {
+        const res = await apiClient.get('/activity');
+        setActivities(res.data);
+      } catch (err) {
+        console.error('Failed to fetch activity');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchActivity();
+  }, []);
 
   return (
     <div className="space-y-8 pb-12">
@@ -361,16 +378,36 @@ function DashboardView({ stats, onAction }: { stats: any, onAction: (action: str
             icon={<Send size={40} className="text-neutral-500" />}
             title="No Active Campaigns"
             description="Start reaching out to your leads with personalized email campaigns."
-            action={<Button variant="white">Create First Campaign</Button>}
+            action={<Button variant="white" onClick={() => onAction('campaigns')}>Create First Campaign</Button>}
           />
         </div>
         <div className="lg:col-span-4 bg-[#09090b] border border-[#27272a] rounded-xl p-6">
           <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-6 flex items-center gap-2">
             <ActivityIcon size={14} /> Recent Activity
           </h3>
-          <div className="flex flex-col items-center justify-center h-48 text-center px-4">
-            <ActivityIcon size={24} className="text-neutral-700 mb-3" />
-            <p className="text-xs text-neutral-500">Activity logs will appear here as your workspace grows.</p>
+          <div className="space-y-4">
+            {loading ? (
+              <div className="flex justify-center py-8">
+                <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : activities.length > 0 ? (
+              activities.map((act) => (
+                <div key={act.id} className="flex gap-3 text-xs">
+                  <div className="shrink-0 w-6 h-6 rounded bg-neutral-800 flex items-center justify-center text-neutral-400">
+                    <ActivityIcon size={12} />
+                  </div>
+                  <div>
+                    <p className="text-neutral-200 leading-normal">{act.description}</p>
+                    <p className="text-neutral-500 mt-0.5 text-[10px]">{new Date(act.created_at).toLocaleTimeString()}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center justify-center h-48 text-center px-4">
+                <ActivityIcon size={24} className="text-neutral-700 mb-3" />
+                <p className="text-xs text-neutral-500">Activity logs will appear here as your workspace grows.</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -391,6 +428,17 @@ function LeadsView({ onImportCSV }: { onImportCSV?: () => void }) {
       console.error('Failed to fetch leads');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteLead = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this lead?')) return;
+    try {
+      await apiClient.delete(`/leads/${id}`);
+      toast.success('Lead deleted');
+      fetchLeads();
+    } catch (err) {
+      toast.error('Failed to delete lead');
     }
   };
 
@@ -440,7 +488,7 @@ function LeadsView({ onImportCSV }: { onImportCSV?: () => void }) {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
         </div>
       ) : leads.length > 0 ? (
-        <LeadsTable leads={leads} />
+        <LeadsTable leads={leads} onDelete={handleDeleteLead} onAddLead={() => setIsAddModalOpen(true)} />
       ) : (
         <EmptyState 
           icon={<Users size={48} className="text-neutral-600" />}
@@ -622,6 +670,21 @@ function TemplatesView() {
     }
   };
 
+  const handleDuplicate = async (template: any) => {
+    try {
+      const { id, created_at, updated_at, ...rest } = template;
+      const duplicatedData = {
+        ...rest,
+        name: `${template.name} (Copy)`
+      };
+      await apiClient.post('/templates', duplicatedData);
+      toast.success('Template duplicated');
+      fetchTemplates();
+    } catch (err) {
+      toast.error('Failed to duplicate template');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -676,6 +739,7 @@ function TemplatesView() {
             setIsModalOpen(true);
           }}
           onDelete={handleDelete}
+          onDuplicate={handleDuplicate}
         />
       ) : (
         <EmptyState 
@@ -690,67 +754,140 @@ function TemplatesView() {
 }
 
 function InboxView({ onAction }: { onAction: (action: string) => void }) {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchInbox = async () => {
+      try {
+        const res = await apiClient.get('/inbox');
+        setMessages(res.data);
+      } catch (err) {
+        console.error('Failed to fetch inbox');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchInbox();
+  }, []);
+
   return (
     <div className="h-full flex flex-col">
        <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold tracking-tight">Unified Inbox</h2>
-        <Badge variant="outline" className="font-mono">0 New</Badge>
+        <Badge variant="outline" className="font-mono">{messages.length} New</Badge>
       </div>
       
-      <EmptyState 
-        icon={<Inbox size={48} className="text-neutral-600" />}
-        title="Inbox Zero"
-        description="When leads reply to your campaigns, the conversations will appear here automatically."
-        action={<Button variant="white" onClick={() => onAction('campaigns')}>Check Campaign Status</Button>}
-      />
-    </div>
-  );
-}
-
-function DomainsView() {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Domain Management</h2>
-        <Button variant="white" size="sm" className="gap-2" onClick={() => toast.info('Navigating to domain management...')}>
-          <Plus size={14} /> Add Domain
-        </Button>
-      </div>
-
-      <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-4 flex items-start gap-4">
-        <ShieldCheck className="text-amber-500 shrink-0" size={20} />
-        <div>
-          <h4 className="text-sm font-semibold text-amber-200">Critical Domain Setup</h4>
-          <p className="text-xs text-amber-500/80 mt-1">You must verify your domain DNS records (SPF, DKIM, DMARC) to ensure high email deliverability. Connect mail.transferlegacy.com to start.</p>
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
         </div>
-      </div>
-
-      <EmptyState 
-        icon={<Globe size={48} className="text-neutral-600" />}
-        title="No Domains Connected"
-        description="Verify a domain to use it as a sender for your outreach campaigns."
-        action={<Button variant="white" onClick={() => toast.info('Connect domain dialog coming soon...')}>Connect First Domain</Button>}
-      />
+      ) : messages.length > 0 ? (
+        <div className="grid gap-3">
+          {messages.map((msg) => (
+            <div key={msg.id} className="p-4 bg-neutral-900 border border-neutral-800 rounded-xl hover:border-neutral-700 transition-all cursor-pointer">
+              <div className="flex justify-between items-start">
+                <div className="flex gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold uppercase shadow-inner">
+                    {msg.leads?.first_name?.[0] || 'L'}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-white">{msg.leads?.first_name} {msg.leads?.last_name}</h4>
+                    <p className="text-xs text-neutral-500 mt-0.5">{msg.leads?.email}</p>
+                  </div>
+                </div>
+                <span className="text-[10px] text-neutral-600 uppercase font-bold tracking-tighter">
+                  {new Date(msg.created_at).toLocaleDateString()}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-300 mt-3 line-clamp-2 leading-relaxed">
+                {msg.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState 
+          icon={<Inbox size={48} className="text-neutral-600" />}
+          title="Inbox Zero"
+          description="When leads reply to your campaigns, the conversations will appear here automatically."
+          action={<Button variant="white" onClick={() => onAction('campaigns')}>Check Campaign Status</Button>}
+        />
+      )}
     </div>
   );
 }
 
 function AutomationsView({ onAction }: { onAction: (action: string) => void }) {
+  const [rules, setRules] = useState([
+    { id: '1', name: 'Auto-reply to leads', description: 'Send a follow-up immediately when a lead replies with interest.', active: true, type: 'trigger' },
+    { id: '2', name: 'Slack Notifications', description: 'Forward high-intent signals to the #sales-alerts channel.', active: false, type: 'integration' },
+    { id: '3', name: 'Drip Sequence', description: 'Move non-responsive leads to a long-term nurture campaign after 14 days.', active: true, type: 'workflow' }
+  ]);
+
+  const toggleRule = (id: string) => {
+    setRules(rules.map(r => r.id === id ? { ...r, active: !r.active } : r));
+    toast.success('Automation rule updated');
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Automations</h2>
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Automations</h2>
+          <p className="text-sm text-neutral-500">Intelligent triggers to handle lead lifecycle events.</p>
+        </div>
         <Button variant="white" size="sm" className="gap-2" onClick={() => toast.info('Automation rules editor coming soon...')}>
           <Plus size={14} /> New Rule
         </Button>
       </div>
 
-      <EmptyState 
-        icon={<Zap size={48} className="text-neutral-600" />}
-        title="No Active Workflows"
-        description="Set up automatic triggers to handle replies, bounces, or status changes."
-        action={<Button variant="white" onClick={() => toast.info('Slack integration is coming soon...')}>Configure Slack Webhook</Button>}
-      />
+      <div className="grid gap-4 mt-8">
+        {rules.map(rule => (
+          <div key={rule.id} className="p-5 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between group hover:border-neutral-700 transition-all">
+            <div className="flex items-center gap-4">
+              <div className={cn(
+                "w-10 h-10 rounded-lg flex items-center justify-center border",
+                rule.active ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-400" : "bg-neutral-800 border-neutral-700 text-neutral-500"
+              )}>
+                <Zap size={20} className={rule.active ? "animate-pulse" : ""} />
+              </div>
+              <div>
+                <h4 className="font-semibold text-white">{rule.name}</h4>
+                <p className="text-xs text-neutral-500 mt-1">{rule.description}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <Badge variant="outline" className="text-[9px] uppercase tracking-widest bg-neutral-950 border-neutral-800 text-neutral-600">
+                {rule.type}
+              </Badge>
+              <button 
+                onClick={() => toggleRule(rule.id)}
+                className={cn(
+                  "w-10 h-5 rounded-full transition-colors relative flex items-center px-1",
+                  rule.active ? "bg-indigo-600" : "bg-neutral-800"
+                )}
+              >
+                <div className={cn(
+                  "w-3 h-3 rounded-full bg-white transition-transform",
+                  rule.active ? "translate-x-5" : "translate-x-0"
+                )} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-12 p-8 border border-dashed border-neutral-800 rounded-2xl flex flex-col items-center text-center">
+        <div className="p-4 bg-indigo-500/5 rounded-full mb-4">
+          <Globe className="text-indigo-400/50" size={32} />
+        </div>
+        <h4 className="text-sm font-bold text-white uppercase tracking-[0.2em]">External Integrations</h4>
+        <p className="text-xs text-neutral-500 mt-2 max-w-sm">Connect your workspace to thousands of other apps via our native Zapier and Make integrations.</p>
+        <Button variant="outline" className="mt-6 border-neutral-800 text-xs" onClick={() => toast.info('API documentation coming soon...')}>
+          View Connector API
+        </Button>
+      </div>
     </div>
   );
 }

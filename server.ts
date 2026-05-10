@@ -10,6 +10,7 @@ import { AnalyticsService } from './src/modules/analytics/analytics.service.ts';
 import { CampaignService } from './src/modules/campaigns/campaign.service.ts';
 import { TemplateService } from './src/modules/templates/template.service.ts';
 import { LeadService } from './src/modules/leads/lead.service.ts';
+import { QueueService } from './src/modules/queue/queue.service.ts';
 import { supabaseAdmin } from './src/lib/supabaseAdmin.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +19,9 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Start background worker
+  QueueService.startWorker();
 
   app.use(cors());
   app.use(express.json());
@@ -68,7 +72,10 @@ async function startServer() {
       // 2. Database Tables Sync
       const { data: workspaces, error: wsError } = await supabaseAdmin.from('workspaces').select('*').limit(1);
       if (wsError) {
-        console.error('[Bootstrap] workspaces fetch error:', JSON.stringify(wsError, null, 2));
+        console.error('[Bootstrap] Workspace fetch error:', wsError.message);
+        if (wsError.message?.includes('schema cache')) {
+          console.error('[Bootstrap] CRITICAL: Tables missing in Supabase. Did you run schema.sql?');
+        }
       }
       let workspace = workspaces?.[0];
 
@@ -81,7 +88,7 @@ async function startServer() {
         }).select().single();
         
         if (insertWsError) {
-          console.error('[Bootstrap] workspaces creation failed:', insertWsError.message);
+          console.error('[Bootstrap] Workspace creation failed:', insertWsError.message);
         }
         workspace = data;
       }
@@ -89,7 +96,7 @@ async function startServer() {
       if (workspace && targetAuthUser) {
         const { data: dbUser, error: fetchUserError } = await supabaseAdmin.from('users').select('*').eq('email', adminEmail).maybeSingle();
         if (fetchUserError) {
-          console.error('[Bootstrap] users fetch error:', fetchUserError.message);
+          console.error('[Bootstrap] User fetch error:', fetchUserError.message);
         }
         
         if (!dbUser) {
@@ -192,6 +199,15 @@ async function startServer() {
     }
   });
 
+  api.delete('/leads/:id', async (req, res) => {
+    try {
+      await LeadService.deleteLead(req.params.id, req.user!.workspaceId);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Profile
   api.get('/auth/me', async (req, res) => {
     res.json(req.user);
@@ -221,6 +237,27 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  api.post('/campaigns', async (req, res) => {
+    try {
+      const data = await CampaignService.createCampaign(req.user!.workspaceId, req.body);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.post('/campaigns/:id/start', async (req, res) => {
+    try {
+      const data = await CampaignService.startCampaign(req.params.id, req.user!.workspaceId);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.delete('/campaigns/:id', async (req, res) => {
+    try {
+      await CampaignService.deleteCampaign(req.params.id, req.user!.workspaceId);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // Templates
   api.get('/templates', async (req, res) => {
     try {
@@ -232,10 +269,60 @@ async function startServer() {
     }
   });
 
+  api.post('/templates', async (req, res) => {
+    try {
+      const data = await TemplateService.createTemplate(req.user!.workspaceId, req.body);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.patch('/templates/:id', async (req, res) => {
+    try {
+      const data = await TemplateService.updateTemplate(req.params.id, req.user!.workspaceId, req.body);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.delete('/templates/:id', async (req, res) => {
+    try {
+      await TemplateService.deleteTemplate(req.params.id, req.user!.workspaceId);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.post('/templates/seed', async (req, res) => {
+    try {
+      await TemplateService.seedDefaults(req.user!.workspaceId);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // Analytics
   api.get('/analytics/overview', async (req, res) => {
     try {
       const data = await AnalyticsService.getWorkspaceMetrics(req.user!.workspaceId);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.get('/activity', async (req, res) => {
+    try {
+      const { ActivityService } = await import('./src/modules/activity/activity.service.ts');
+      const data = await ActivityService.getWorkspaceActivity(req.user!.workspaceId);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.get('/inbox', async (req, res) => {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('activities')
+        .select('*')
+        .eq('workspace_id', req.user!.workspaceId)
+        .eq('type', 'REPLY')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -269,6 +356,19 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  api.delete('/domains/:id', async (req, res) => {
+    try {
+      const { error } = await supabaseAdmin
+        .from('domains')
+        .delete()
+        .eq('id', req.params.id)
+        .eq('workspace_id', req.user!.workspaceId);
+      
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // Users (Team)
   api.get('/users', async (req, res) => {
     try {
@@ -279,6 +379,24 @@ async function startServer() {
       
       if (error) throw error;
       res.json(users);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.delete('/users/:id', async (req, res) => {
+    try {
+      // Check if trying to delete self
+      if (req.params.id === req.user!.id) {
+        return res.status(400).json({ error: 'Cannot delete your own account' });
+      }
+
+      const { error } = await supabaseAdmin
+        .from('users')
+        .delete()
+        .eq('id', req.params.id)
+        .eq('workspace_id', req.user!.workspaceId);
+      
+      if (error) throw error;
+      res.json({ success: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

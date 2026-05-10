@@ -1,8 +1,12 @@
 import type { NextFunction, Request, Response } from 'express';
-import { supabaseAdmin } from './supabaseAdmin';
+import { supabaseAdmin } from './supabaseAdmin.ts';
 import { decodeJwt } from 'jose';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+
+// Simple in-memory cache for profiles
+const profileCache: Record<string, { profile: any, timestamp: number }> = {};
+const CACHE_TTL = 60000; // 1 minute
 
 /**
  * Supabase Auth Middleware
@@ -74,14 +78,36 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 
     // 2. Fetch RBAC profile from Supabase DB
     const refinedEmail = (sbUser.email || '').toLowerCase().trim();
-    const { data: userProfile, error: profileError } = await supabaseAdmin
-      .from('users')
-      .select('id, email, role, workspace_id')
-      .eq('email', refinedEmail)
-      .maybeSingle();
+    const cached = profileCache[sbUser.id];
+    let userProfile: any = null;
+    let profileError: any = null;
+
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+      userProfile = cached.profile;
+    } else {
+      const res = await supabaseAdmin
+        .from('users')
+        .select('id, email, role, workspace_id')
+        .eq('email', refinedEmail)
+        .maybeSingle();
+      
+      userProfile = res.data;
+      profileError = res.error;
+      
+      if (userProfile && !profileError) {
+        profileCache[sbUser.id] = { profile: userProfile, timestamp: Date.now() };
+      }
+    }
 
     if (profileError) {
       console.error('[AuthMiddleware] Profile fetch error:', profileError.message || profileError);
+      
+      // Handle the specific PostgREST cache issue with a more helpful message
+      if (profileError.message?.includes('schema cache')) {
+        console.error('[AuthMiddleware] CRITICAL: The "users" table was not found in the Supabase schema cache.');
+        console.error('[AuthMiddleware] SOLUTION: Please ensure you have run the schema.sql in your Supabase SQL Editor and that the "users" table exists in the "public" schema.');
+      }
+      
       console.error('[AuthMiddleware] Profile fetch error details:', JSON.stringify(profileError, null, 2));
     }
 

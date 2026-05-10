@@ -12,7 +12,7 @@ export class WorkspaceService {
     
     // Create workspace
     const { data: workspace, error } = await supabaseAdmin
-      .from('Workspace')
+      .from('workspaces')
       .insert([{ name, slug }])
       .select()
       .single();
@@ -20,9 +20,9 @@ export class WorkspaceService {
     if (error) throw new Error(error.message);
 
     // Create default settings
-    await supabaseAdmin.from('WorkspaceSettings').insert([{
-      workspaceId: workspace.id,
-      emailDailyLimit: 1000,
+    await supabaseAdmin.from('workspace_settings').insert([{
+      workspace_id: workspace.id,
+      email_daily_limit: 1000,
       timezone: 'UTC'
     }]);
 
@@ -34,13 +34,13 @@ export class WorkspaceService {
    */
   static async getWorkspace(id: string) {
     const { data: workspace, error } = await supabaseAdmin
-      .from('Workspace')
+      .from('workspaces')
       .select(`
         *,
-        settings:WorkspaceSettings(*),
-        leads:Lead(count),
-        campaigns:Campaign(count),
-        users:User(count)
+        settings:workspace_settings(*),
+        leads:leads(count),
+        campaigns:campaigns(count),
+        users:users(count)
       `)
       .eq('id', id)
       .single();
@@ -54,9 +54,14 @@ export class WorkspaceService {
    */
   static async updateSettings(workspaceId: string, data: any) {
     const { data: settings, error } = await supabaseAdmin
-      .from('WorkspaceSettings')
-      .update(data)
-      .eq('workspaceId', workspaceId)
+      .from('workspace_settings')
+      .update({
+        email_daily_limit: data.emailDailyLimit || data.email_daily_limit,
+        timezone: data.timezone,
+        slack_webhook_url: data.slackWebhookUrl || data.slack_webhook_url,
+        updated_at: new Date().toISOString()
+      })
+      .eq('workspace_id', workspaceId)
       .select()
       .single();
 

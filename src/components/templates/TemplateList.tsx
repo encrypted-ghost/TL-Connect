@@ -1,4 +1,4 @@
-import { Mail, MoreVertical, Edit2, Trash2, Filter } from 'lucide-react';
+import { Mail, MoreVertical, Edit2, Trash2, Filter, Copy } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
@@ -22,9 +22,10 @@ interface TemplateListProps {
   templates: Template[];
   onEdit: (template: Template) => void;
   onDelete: (id: string) => void;
+  onDuplicate?: (template: Template) => void;
 }
 
-export function TemplateList({ templates, onEdit, onDelete }: TemplateListProps) {
+export function TemplateList({ templates, onEdit, onDelete, onDuplicate }: TemplateListProps) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const categories = useMemo(() => {
@@ -105,6 +106,13 @@ export function TemplateList({ templates, onEdit, onDelete }: TemplateListProps)
                   >
                     <Edit2 size={14} /> Edit Template
                   </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => onDuplicate?.(template)}
+                    className="flex items-center gap-2 cursor-pointer text-indigo-400 focus:bg-indigo-950 focus:text-indigo-300"
+                  >
+                    <Copy size={14} /> Duplicate
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-neutral-800" />
                   <DropdownMenuItem 
                     onClick={() => onDelete(template.id)}
                     className="flex items-center gap-2 cursor-pointer text-red-400 focus:bg-red-950 focus:text-red-300"

@@ -43,4 +43,15 @@ export class CampaignService {
     if (error) throw error;
     return campaign;
   }
+
+  static async deleteCampaign(id: string, workspaceId: string) {
+    const { error } = await supabaseAdmin
+      .from('campaigns')
+      .delete()
+      .eq('id', id)
+      .eq('workspace_id', workspaceId);
+
+    if (error) throw error;
+    return { success: true };
+  }
 }

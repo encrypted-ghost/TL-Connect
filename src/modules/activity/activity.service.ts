@@ -10,8 +10,15 @@ export class ActivityService {
     workspaceId: string;
   }) {
     const { data: activity, error } = await supabaseAdmin
-      .from('Activity')
-      .insert(data)
+      .from('activities')
+      .insert({
+        type: data.type,
+        description: data.description,
+        metadata: data.metadata,
+        user_id: data.userId,
+        lead_id: data.leadId,
+        workspace_id: data.workspaceId,
+      })
       .select()
       .single();
 
@@ -20,14 +27,22 @@ export class ActivityService {
   }
 
   static async getWorkspaceActivity(workspaceId: string, limit = 10) {
-    const { data, error } = await supabaseAdmin
-      .from('Activity')
-      .select('*, User(name, avatarUrl), Lead(firstName, lastName)')
-      .eq('workspaceId', workspaceId)
-      .order('createdAt', { ascending: false })
-      .limit(limit);
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('activities')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
 
-    if (error) throw error;
-    return data;
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      console.error('Error fetching activity:', err);
+      // Fallback: return empty array instead of throwing to prevent UI crash if possible
+      // but the service should probably throw and the route should handle it.
+      // Keeping throw for now but with a clearer log.
+      throw err;
+    }
   }
 }

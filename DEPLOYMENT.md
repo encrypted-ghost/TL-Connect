@@ -6,8 +6,9 @@
 Since we are using the **HTTPS REST API** via the `supabase-js` client (to avoid IPv4 connection string issues on Vercel), you must ensure your tables are created in the `public` schema.
 
 1. Go to **Supabase Dashboard** -> **SQL Editor**.
-2. Run the migration scripts (or use Prisma to push if using a local proxy, though REST is the preferred production route here).
-3. Ensure **RLS (Row Level Security)** is managed properly, or given the system is a managed backend, ensure the `Service Role` key is stored securely in Vercel.
+2. Run the `schema.sql` migration script.
+3. If you get "schema cache" errors, wait a minute or click "Reload PostgREST config" in Settings -> API -> Advanced.
+4. Ensure **RLS (Row Level Security)** is managed properly, or given the system is a managed backend, ensure the `Service Role` key is stored securely in Vercel.
 
 ## 2. Environment Variables
 
