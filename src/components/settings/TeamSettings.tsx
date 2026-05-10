@@ -46,7 +46,7 @@ export function TeamSettings() {
     fetchUsers();
   }, []);
 
-  if (profile?.role !== 'ADMIN') {
+  if (profile?.role !== 'ADMIN' && profile?.role !== 'SUPER_ADMIN') {
     return (
       <div className="flex flex-col items-center justify-center h-[400px] text-center space-y-6">
         <div className="w-20 h-20 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">

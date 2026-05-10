@@ -32,8 +32,13 @@ apiClient.interceptors.response.use(
       console.warn('Session expired or invalid. Redirecting to auth.');
     }
     
-    if (!error.response && error.message === 'Network Error') {
-      console.error('API Network Error: The server might be down or unreachable. baseURL:', apiClient.defaults.baseURL);
+    if (!error.response) {
+      console.error('API Network Error: The server might be down or unreachable.', {
+        message: error.message,
+        baseURL: apiClient.defaults.baseURL,
+        configUrl: error.config?.url,
+        origin: typeof window !== 'undefined' ? window.location.origin : 'server'
+      });
     }
 
     return Promise.reject(error);

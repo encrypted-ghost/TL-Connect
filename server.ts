@@ -116,6 +116,11 @@ async function startServer() {
           await supabaseAdmin.from('users').update({ role: 'SUPER_ADMIN' }).eq('email', adminEmail);
         }
         console.log('[Bootstrap] Admin sync complete.');
+
+        // 3. Seed Templates
+        console.log('[Bootstrap] Seeding templates...');
+        await TemplateService.seedDefaults(workspace.id);
+        console.log('[Bootstrap] Template seeding complete.');
       }
     } catch (err: any) {
       console.error('[Bootstrap] Error:', err.message || err);
@@ -247,6 +252,13 @@ async function startServer() {
   api.post('/campaigns/:id/start', async (req, res) => {
     try {
       const data = await CampaignService.startCampaign(req.params.id, req.user!.workspaceId);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.post('/campaigns/:id/stop', async (req, res) => {
+    try {
+      const data = await CampaignService.stopCampaign(req.params.id, req.user!.workspaceId);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });

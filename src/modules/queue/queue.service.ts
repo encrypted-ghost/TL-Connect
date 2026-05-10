@@ -54,11 +54,46 @@ export class QueueService {
       let lastError = null;
 
       if (job.type === 'SEND_EMAIL') {
+        const payload = job.payload as any;
+        
+        // CHECK: Is the campaign still running?
+        const { data: campaign } = await supabaseAdmin
+          .from('campaigns')
+          .select('status, stats_sent')
+          .eq('id', payload.campaignId)
+          .single();
+        
+        if (!campaign || campaign.status !== 'RUNNING') {
+          // Skip if paused or stopped
+          await supabaseAdmin.from('queue_jobs').update({ 
+            status: 'COMPLETED', // Or CANCELLED if you have that status
+            last_error: 'Campaign not running'
+          }).eq('id', job.id);
+          this.isProcessing = false;
+          return;
+        }
+
         try {
           const provider = EmailProviderFactory.getProvider();
-          const result = await provider.send(job.payload as any);
+          const result = await provider.send(payload);
           success = result.success;
           lastError = result.error;
+
+          if (success) {
+            // Update campaign stats
+            await supabaseAdmin
+              .from('campaigns')
+              .update({ stats_sent: (campaign.stats_sent || 0) + 1 })
+              .eq('id', payload.campaignId);
+            
+            // Log activity
+            await supabaseAdmin.from('activities').insert({
+              type: 'EMAIL_SENT',
+              description: `Campaign email sent to ${payload.to}`,
+              metadata: { campaignId: payload.campaignId, leadId: payload.leadId },
+              workspace_id: payload.workspaceId
+            });
+          }
         } catch (err: any) {
           success = false;
           lastError = err.message;

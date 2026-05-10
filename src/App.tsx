@@ -79,7 +79,7 @@ export default function App() {
 
   const handleAction = (action: string, payload?: any) => {
     // Basic navigation
-    if (['dashboard', 'leads', 'campaigns', 'templates', 'inbox', 'domains', 'automations'].includes(action)) {
+    if (['dashboard', 'leads', 'campaigns', 'templates', 'inbox', 'domains', 'automations', 'settings'].includes(action)) {
       setCurrentView(action as View);
       setMobileMenuOpen(false);
       
@@ -217,8 +217,9 @@ export default function App() {
           </div>
           <div className="mt-6 flex items-center justify-between px-2">
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-700 border border-indigo-500/30 flex items-center justify-center text-xs font-black text-white shadow-[0_0_15px_rgba(99,102,241,0.2)] uppercase">
+              <div className="shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-700 border border-indigo-500/30 flex items-center justify-center text-[10px] font-black text-white shadow-[0_0_15px_rgba(99,102,241,0.2)] uppercase">
                 {user.email?.[0] || 'U'}
+                {user.email?.[1] && !user.email?.[1].includes('@') ? user.email?.[1] : ''}
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="text-[11px] font-bold text-white truncate uppercase tracking-tight">{user.email?.split('@')[0] || 'User'}</span>
@@ -547,6 +548,16 @@ function CampaignsView() {
     }
   };
 
+  const handleStop = async (id: string) => {
+    try {
+      await apiClient.post(`/campaigns/${id}/stop`);
+      toast.success('Campaign paused');
+      fetchCampaigns();
+    } catch (err) {
+      toast.error('Failed to pause campaign');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this campaign?')) return;
     try {
@@ -594,6 +605,7 @@ function CampaignsView() {
         <CampaignList 
           campaigns={campaigns} 
           onStart={handleStart}
+          onStop={handleStop}
           onDelete={handleDelete}
         />
       ) : (

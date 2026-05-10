@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Play, Calendar, MoreVertical, Trash2, Clock, Filter, CheckCircle2, AlertCircle, Send, FileText } from 'lucide-react';
+import { Play, Calendar, MoreVertical, Trash2, Clock, Filter, CheckCircle2, AlertCircle, Send, FileText, Square } from 'lucide-react';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
 import { cn } from '@/src/lib/utils';
@@ -23,10 +23,11 @@ interface Campaign {
 interface CampaignListProps {
   campaigns: Campaign[];
   onStart: (id: string) => void;
+  onStop: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-export function CampaignList({ campaigns, onStart, onDelete }: CampaignListProps) {
+export function CampaignList({ campaigns, onStart, onStop, onDelete }: CampaignListProps) {
   const [filterStatus, setFilterStatus] = useState<string | 'ALL'>('ALL');
 
   const filteredCampaigns = useMemo(() => {
@@ -38,9 +39,24 @@ export function CampaignList({ campaigns, onStart, onDelete }: CampaignListProps
     { label: 'All', value: 'ALL', icon: <Filter size={14} /> },
     { label: 'Draft', value: 'DRAFT', icon: <FileText size={14} /> },
     { label: 'Running', value: 'RUNNING', icon: <Send size={14} /> },
+    { label: 'Paused', value: 'PAUSED', icon: <Square size={14} /> },
     { label: 'Completed', value: 'COMPLETED', icon: <CheckCircle2 size={14} /> },
     { label: 'Failed', value: 'FAILED', icon: <AlertCircle size={14} /> },
   ];
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    return date.toLocaleString();
+  };
+
+  const formatShortDate = (dateString: string | null) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    return date.toLocaleDateString();
+  };
 
   return (
     <div className="space-y-6">
@@ -75,11 +91,13 @@ export function CampaignList({ campaigns, onStart, onDelete }: CampaignListProps
                   campaign.status === 'RUNNING' ? 'bg-indigo-500/10 text-indigo-400' : 
                   campaign.status === 'COMPLETED' ? 'bg-green-500/10 text-green-400' :
                   campaign.status === 'FAILED' ? 'bg-red-500/10 text-red-400' :
+                  campaign.status === 'PAUSED' ? 'bg-amber-500/10 text-amber-400' :
                   'bg-neutral-800 text-neutral-400'
                 )}>
                   {campaign.status === 'RUNNING' ? <Send size={20} className="animate-pulse" /> : 
                    campaign.status === 'COMPLETED' ? <CheckCircle2 size={20} /> :
                    campaign.status === 'FAILED' ? <AlertCircle size={20} /> :
+                   campaign.status === 'PAUSED' ? <Square size={20} /> :
                    <FileText size={20} />}
                 </div>
                 
@@ -91,6 +109,7 @@ export function CampaignList({ campaigns, onStart, onDelete }: CampaignListProps
                       campaign.status === 'RUNNING' ? 'border-indigo-500/30 text-indigo-400 bg-indigo-500/5' : 
                       campaign.status === 'COMPLETED' ? 'border-green-500/30 text-green-400 bg-green-500/5' :
                       campaign.status === 'FAILED' ? 'border-red-500/30 text-red-400 bg-red-500/5' :
+                      campaign.status === 'PAUSED' ? 'border-amber-500/30 text-amber-400 bg-amber-500/5' :
                       'border-neutral-700 text-neutral-500'
                     )}>
                       {campaign.status}
@@ -100,11 +119,11 @@ export function CampaignList({ campaigns, onStart, onDelete }: CampaignListProps
                     {campaign.scheduledAt ? (
                       <div className="flex items-center gap-1 text-[11px] text-amber-400 bg-amber-400/5 px-2 py-0.5 rounded border border-amber-400/20">
                         <Clock size={12} />
-                        Scheduled: {new Date(campaign.scheduledAt).toLocaleString()}
+                        Scheduled: {formatDate(campaign.scheduledAt)}
                       </div>
                     ) : (
                       <span className="text-[11px] text-neutral-500">
-                        Created {new Date(campaign.createdAt).toLocaleDateString()}
+                        Created {formatShortDate(campaign.createdAt)}
                       </span>
                     )}
                   </div>
@@ -124,14 +143,25 @@ export function CampaignList({ campaigns, onStart, onDelete }: CampaignListProps
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {campaign.status === 'DRAFT' && !campaign.scheduledAt && (
+                  {(campaign.status === 'DRAFT' || campaign.status === 'PAUSED') && !campaign.scheduledAt && (
                     <Button 
                       size="sm" 
                       variant="outline" 
                       className="h-8 gap-2 text-xs border-neutral-800 hover:bg-neutral-800"
                       onClick={() => onStart(campaign.id)}
                     >
-                      <Play size={12} /> Start
+                      <Play size={12} /> {campaign.status === 'PAUSED' ? 'Resume' : 'Start'}
+                    </Button>
+                  )}
+
+                  {campaign.status === 'RUNNING' && (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-8 gap-2 text-xs border-neutral-800 hover:bg-neutral-800 text-amber-400 hover:text-amber-300"
+                      onClick={() => onStop(campaign.id)}
+                    >
+                      <Square size={12} /> Stop
                     </Button>
                   )}
                   

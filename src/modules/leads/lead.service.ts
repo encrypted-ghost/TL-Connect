@@ -101,7 +101,7 @@ export class LeadService {
   static async deleteLead(id: string, workspace_id: string) {
     const { error } = await supabaseAdmin
       .from('leads')
-      .delete()
+      .update({ is_deleted: true })
       .eq('id', id)
       .eq('workspace_id', workspace_id);
 

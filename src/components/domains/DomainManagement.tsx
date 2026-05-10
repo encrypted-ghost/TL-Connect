@@ -37,7 +37,7 @@ export function DomainManagement() {
     try {
       await apiClient.post('/domains', {
         domain: newDomain,
-        isVerified: false
+        is_verified: false
       });
       setNewDomain('');
       toast.success('Domain added to infrastructure.');
@@ -112,7 +112,7 @@ export function DomainManagement() {
                 <div>
                   <h3 className="font-semibold text-neutral-100">{d.domain}</h3>
                   <div className="flex items-center gap-2 mt-1">
-                    {d.isVerified ? (
+                    {d.is_verified ? (
                       <span className="flex items-center gap-1 text-[10px] text-emerald-500 font-bold uppercase tracking-wider">
                         <CheckCircle2 size={10} /> Active
                       </span>
@@ -126,7 +126,7 @@ export function DomainManagement() {
               </div>
 
               <div className="flex items-center gap-4">
-                {!d.isVerified && (
+                {!d.is_verified && (
                   <Button 
                     variant="outline" 
                     size="sm" 

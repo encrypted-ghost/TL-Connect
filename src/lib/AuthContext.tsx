@@ -20,25 +20,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // 1. Check current session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error && error.message.includes('Refresh Token Not Found')) {
-        console.warn('Stale session detected, signing out...');
-        supabase.auth.signOut();
+    const checkSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          if (error.message.includes('Refresh Token Not Found')) {
+            console.warn('Stale session detected, clearing storage...');
+            await supabase.auth.signOut();
+            handleSession(null);
+          } else {
+            console.error('Initial session fetch error:', error.message);
+            handleSession(null);
+          }
+        } else {
+          handleSession(session);
+        }
+      } catch (err) {
+        console.error('Unexpected error checking session:', err);
+        handleSession(null);
       }
-      handleSession(session);
-    });
+    };
+
+    checkSession();
 
     // 2. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);
+      } else if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+        handleSession(session);
       } else {
         handleSession(session);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const handleSession = async (session: Session | null) => {

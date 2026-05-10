@@ -21,14 +21,15 @@ export function LeadsTable({ leads, onDelete, onAddLead }: LeadsTableProps) {
   const columns = [
     {
       header: 'Name',
-      accessorKey: 'firstName',
+      accessorKey: 'first_name',
       cell: (lead: any) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[10px] font-black text-white uppercase shadow-sm border border-indigo-400/20">
-            {lead.firstName?.[0]}{lead.lastName?.[0]}
+            {lead.first_name?.[0] || <User size={12} />}
+            {lead.last_name?.[0]}
           </div>
           <div className="flex flex-col">
-            <span className="font-semibold text-neutral-100">{lead.firstName} {lead.lastName}</span>
+            <span className="font-semibold text-neutral-100">{lead.first_name} {lead.last_name}</span>
             <span className="text-[10px] text-neutral-500 font-mono">{lead.email}</span>
           </div>
         </div>
@@ -88,9 +89,9 @@ export function LeadsTable({ leads, onDelete, onAddLead }: LeadsTableProps) {
     },
     {
       header: 'Created',
-      accessorKey: 'createdAt',
+      accessorKey: 'created_at',
       cell: (lead: any) => (
-        <span className="text-[10px] text-neutral-500 font-mono">{timeAgo(lead.createdAt)}</span>
+        <span className="text-[10px] text-neutral-500 font-mono">{timeAgo(lead.created_at)}</span>
       ),
     },
     {
