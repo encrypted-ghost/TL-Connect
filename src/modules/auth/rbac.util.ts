@@ -9,7 +9,7 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
   ADMIN: ['*'],
   MANAGER: ['leads.*', 'campaigns.*', 'analytics.view'],
   AGENT: ['leads.view', 'leads.edit', 'campaigns.view'],
-  VIEWER: ['leads.view', 'analytics.view'],
+  VIEWER: ['leads.view', 'campaigns.view', 'analytics.view'],
 };
 
 export function hasPermission(userRole: Role, permission: string): boolean {
@@ -36,4 +36,6 @@ export const PERMISSIONS = {
   ANALYTICS_VIEW: 'analytics.view',
   SETTINGS_EDIT: 'settings.edit',
   USER_INVITE: 'users.invite',
+  USER_DELETE: 'users.delete',
+  USERS_DELETE: 'users.delete',
 } as const;

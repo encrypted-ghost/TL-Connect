@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { authMiddleware } from './src/lib/middleware.ts';
+import { requirePermission } from './src/lib/rbac.middleware.ts';
+import { PERMISSIONS } from './src/modules/auth/rbac.util.ts';
 import { AnalyticsService } from './src/modules/analytics/analytics.service.ts';
 import { CampaignService } from './src/modules/campaigns/campaign.service.ts';
 import { TemplateService } from './src/modules/templates/template.service.ts';
@@ -130,11 +132,168 @@ async function startServer() {
   // Run bootstrap in the background to not block app startup
   bootstrap().catch(err => console.error('[Bootstrap Background Error]', err));
 
-  // --- API ROUTES ---
+  // --- PUBLIC ENDPOINTS ---
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // Unsubscribe Link Endpoint (Public)
+  app.get('/api/unsubscribe', async (req, res) => {
+    const { email, workspaceId } = req.query;
+    if (!email || !workspaceId) {
+      return res.status(400).send('<h1>Invalid unsubscribe link</h1>');
+    }
+    try {
+      const { error } = await supabaseAdmin.from('unsubscribes').insert({
+        email: String(email).toLowerCase().trim(),
+        workspace_id: String(workspaceId)
+      });
+      // Unique key violation code 23505 is ok, it means already unsubscribed
+      if (error && error.code !== '23505') {
+        throw error;
+      }
+      
+      // Log activity
+      await supabaseAdmin.from('activities').insert({
+        type: 'EMAIL_UNSUBSCRIBED',
+        description: `${email} unsubscribed from campaign emails`,
+        metadata: { email, source: 'unsubscribe_link' },
+        workspace_id: String(workspaceId)
+      });
+
+      res.send(`
+        <html>
+          <head>
+            <title>Unsubscribed</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f9fafb; color: #111827; }
+              .card { background: white; padding: 2.5rem; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); text-align: center; max-width: 400px; width: 100%; border: 1px solid #e5e7eb; }
+              h1 { font-size: 1.5rem; margin-bottom: 0.5rem; font-weight: 700; color: #1f2937; }
+              p { color: #4b5563; font-size: 0.875rem; line-height: 1.5; margin-bottom: 1.5rem; }
+              .logo { font-weight: 800; font-size: 1.25rem; color: #4f46e5; margin-bottom: 1.5rem; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <div class="logo">TL Connect</div>
+              <h1>Unsubscribe Successful</h1>
+              <p>You have been successfully unsubscribed from this workspace's mailing list. You will no longer receive marketing or outreach emails from us.</p>
+            </div>
+          </body>
+        </html>
+      `);
+    } catch (err: any) {
+      console.error('Unsubscribe error:', err);
+      res.status(500).send('<h1>Something went wrong</h1>');
+    }
+  });
+
+  // Mailjet Webhook Endpoint (Public)
+  app.post('/api/webhooks/mailjet', async (req, res) => {
+    const events = Array.isArray(req.body) ? req.body : [req.body];
+    
+    for (const event of events) {
+      try {
+        const payloadStr = event.Payload || event.payload;
+        if (!payloadStr) continue;
+        
+        let metadata: any;
+        try {
+          metadata = JSON.parse(payloadStr);
+        } catch {
+          continue;
+        }
+        
+        const { campaignId, leadId, workspaceId, jobId } = metadata;
+        if (!campaignId || !workspaceId) continue;
+        
+        // Update campaign stats
+        const { data: campaign } = await supabaseAdmin
+          .from('campaigns')
+          .select('stats_opened, stats_clicked, stats_bounced')
+          .eq('id', campaignId)
+          .single();
+        
+        if (campaign) {
+          const updateObj: any = {};
+          if (event.event === 'open') updateObj.stats_opened = (campaign.stats_opened || 0) + 1;
+          if (event.event === 'click') updateObj.stats_clicked = (campaign.stats_clicked || 0) + 1;
+          if (event.event === 'bounce') updateObj.stats_bounced = (campaign.stats_bounced || 0) + 1;
+          
+          if (Object.keys(updateObj).length > 0) {
+            await supabaseAdmin.from('campaigns').update(updateObj).eq('id', campaignId);
+          }
+        }
+        
+        // Record activity
+        let activityType = 'EMAIL_EVENT';
+        let description = `Mailjet event: ${event.event} for ${event.email}`;
+        
+        if (event.event === 'open') {
+          activityType = 'EMAIL_OPENED';
+          description = `Email opened by ${event.email}`;
+        } else if (event.event === 'click') {
+          activityType = 'EMAIL_CLICKED';
+          description = `Email link clicked by ${event.email}`;
+        } else if (event.event === 'bounce') {
+          activityType = 'EMAIL_BOUNCED';
+          description = `Email bounced for ${event.email}`;
+        } else if (event.event === 'spam') {
+          activityType = 'EMAIL_SPAM';
+          description = `Email reported as spam by ${event.email}`;
+        } else if (event.event === 'blocked') {
+          activityType = 'EMAIL_BLOCKED';
+          description = `Email blocked for ${event.email}`;
+        } else if (event.event === 'unsub') {
+          activityType = 'EMAIL_UNSUBSCRIBED';
+          description = `Email unsubscribed by ${event.email}`;
+          
+          // Also insert into unsubscribes table if event is unsub
+          await supabaseAdmin.from('unsubscribes').insert({
+            email: String(event.email).toLowerCase().trim(),
+            workspace_id: workspaceId
+          }).select().maybeSingle();
+        }
+        
+        await supabaseAdmin.from('activities').insert({
+          type: activityType,
+          description,
+          metadata: { 
+            campaignId, 
+            leadId, 
+            jobId,
+            mailjetMessageId: event.MessageID,
+            mailjetEvent: event.event,
+            eventTime: event.time 
+          },
+          lead_id: leadId,
+          workspace_id: workspaceId
+        });
+        
+      } catch (err) {
+        console.error('Error processing Mailjet event:', err);
+      }
+    }
+    
+    res.status(200).json({ status: 'ok' });
+  });
+
+  // Cron queue processing endpoint (Public, protected by token)
+  app.post('/api/queue/process', async (req, res) => {
+    const cronSecret = req.headers['x-cron-secret'];
+    if (process.env.CRON_SECRET && cronSecret !== process.env.CRON_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid cron secret' });
+    }
+    try {
+      const processedCount = await QueueService.processBatch(10);
+      res.json({ success: true, processed: processedCount });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- API ROUTER (AUTHENTICATED) ---
 
   const api = express.Router();
   api.use(authMiddleware);
@@ -166,7 +325,7 @@ async function startServer() {
   });
 
   // Leads
-  api.get('/leads', async (req, res) => {
+  api.get('/leads', requirePermission(PERMISSIONS.LEADS_VIEW), async (req, res) => {
     try {
       const data = await LeadService.getLeads(req.user!.workspaceId, req.query);
       res.json(data);
@@ -180,7 +339,7 @@ async function startServer() {
     }
   });
 
-  api.post('/leads', async (req, res) => {
+  api.post('/leads', requirePermission(PERMISSIONS.LEADS_EDIT), async (req, res) => {
     try {
       const data = await LeadService.createLead(req.user!.workspaceId, req.body);
       res.json(data);
@@ -190,7 +349,7 @@ async function startServer() {
     }
   });
 
-  api.post('/leads/bulk', async (req, res) => {
+  api.post('/leads/bulk', requirePermission(PERMISSIONS.LEADS_EDIT), async (req, res) => {
     try {
       const { leads } = req.body;
       if (!Array.isArray(leads)) {
@@ -204,7 +363,7 @@ async function startServer() {
     }
   });
 
-  api.delete('/leads/:id', async (req, res) => {
+  api.delete('/leads/:id', requirePermission(PERMISSIONS.LEADS_DELETE), async (req, res) => {
     try {
       await LeadService.deleteLead(req.params.id, req.user!.workspaceId);
       res.json({ success: true });
@@ -235,35 +394,35 @@ async function startServer() {
   });
 
   // Campaigns
-  api.get('/campaigns', async (req, res) => {
+  api.get('/campaigns', requirePermission(PERMISSIONS.CAMPAIGNS_VIEW), async (req, res) => {
     try {
       const data = await CampaignService.getCampaigns(req.user!.workspaceId);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.post('/campaigns', async (req, res) => {
+  api.post('/campaigns', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       const data = await CampaignService.createCampaign(req.user!.workspaceId, req.body);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.post('/campaigns/:id/start', async (req, res) => {
+  api.post('/campaigns/:id/start', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       const data = await CampaignService.startCampaign(req.params.id, req.user!.workspaceId);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.post('/campaigns/:id/stop', async (req, res) => {
+  api.post('/campaigns/:id/stop', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       const data = await CampaignService.stopCampaign(req.params.id, req.user!.workspaceId);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.delete('/campaigns/:id', async (req, res) => {
+  api.delete('/campaigns/:id', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       await CampaignService.deleteCampaign(req.params.id, req.user!.workspaceId);
       res.json({ success: true });
@@ -271,7 +430,7 @@ async function startServer() {
   });
 
   // Templates
-  api.get('/templates', async (req, res) => {
+  api.get('/templates', requirePermission(PERMISSIONS.CAMPAIGNS_VIEW), async (req, res) => {
     try {
       const data = await TemplateService.getTemplates(req.user!.workspaceId);
       res.json(data);
@@ -281,28 +440,29 @@ async function startServer() {
     }
   });
 
-  api.post('/templates', async (req, res) => {
+  api.post('/templates', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       const data = await TemplateService.createTemplate(req.user!.workspaceId, req.body);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.patch('/templates/:id', async (req, res) => {
+  api.patch('/templates/:id', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       const data = await TemplateService.updateTemplate(req.params.id, req.user!.workspaceId, req.body);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.delete('/templates/:id', async (req, res) => {
+  // Note: templates delete uses campaigns.edit to manage
+  api.delete('/templates/:id', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       await TemplateService.deleteTemplate(req.params.id, req.user!.workspaceId);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.post('/templates/seed', async (req, res) => {
+  api.post('/templates/seed', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       await TemplateService.seedDefaults(req.user!.workspaceId);
       res.json({ success: true });
@@ -310,14 +470,14 @@ async function startServer() {
   });
 
   // Analytics
-  api.get('/analytics/overview', async (req, res) => {
+  api.get('/analytics/overview', requirePermission(PERMISSIONS.ANALYTICS_VIEW), async (req, res) => {
     try {
       const data = await AnalyticsService.getWorkspaceMetrics(req.user!.workspaceId);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.get('/activity', async (req, res) => {
+  api.get('/activity', requirePermission(PERMISSIONS.ANALYTICS_VIEW), async (req, res) => {
     try {
       const { ActivityService } = await import('./src/modules/activity/activity.service.ts');
       const data = await ActivityService.getWorkspaceActivity(req.user!.workspaceId);
@@ -325,7 +485,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.get('/inbox', async (req, res) => {
+  api.get('/inbox', requirePermission('inbox.view'), async (req, res) => {
     try {
       const { data, error } = await supabaseAdmin
         .from('activities')
@@ -340,7 +500,7 @@ async function startServer() {
   });
 
   // Domains
-  api.get('/domains', async (req, res) => {
+  api.get('/domains', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
     try {
       const { data: domains, error } = await supabaseAdmin
         .from('domains')
@@ -352,7 +512,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.post('/domains', async (req, res) => {
+  api.post('/domains', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
     try {
       const { data: domain, error } = await supabaseAdmin
         .from('domains')
@@ -368,7 +528,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.delete('/domains/:id', async (req, res) => {
+  api.delete('/domains/:id', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
     try {
       const { error } = await supabaseAdmin
         .from('domains')
@@ -382,7 +542,7 @@ async function startServer() {
   });
 
   // Users (Team)
-  api.get('/users', async (req, res) => {
+  api.get('/users', requirePermission('users.view'), async (req, res) => {
     try {
       const { data: users, error } = await supabaseAdmin
         .from('users')
@@ -394,7 +554,7 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  api.delete('/users/:id', async (req, res) => {
+  api.delete('/users/:id', requirePermission(PERMISSIONS.USER_DELETE), async (req, res) => {
     try {
       // Check if trying to delete self
       if (req.params.id === req.user!.id) {

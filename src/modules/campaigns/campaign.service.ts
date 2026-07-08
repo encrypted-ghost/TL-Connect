@@ -51,34 +51,65 @@ export class CampaignService {
     
     if (lError) throw lError;
 
-    // 3. Mark Campaign as RUNNING
+    // 3. Fetch unsubscribed emails for this workspace to pre-filter
+    const { data: unsubscribed } = await supabaseAdmin
+      .from('unsubscribes')
+      .select('email')
+      .eq('workspace_id', workspaceId);
+
+    const unsubscribedEmails = new Set((unsubscribed || []).map(u => u.email.toLowerCase().trim()));
+
+    // 4. Mark Campaign as RUNNING
     const { error: uError } = await supabaseAdmin
       .from('campaigns')
       .update({ 
         status: 'RUNNING',
-        started_at: new Date().toISOString()
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       })
       .eq('id', campaignId);
     
     if (uError) throw uError;
 
-    // 4. Enqueue SEND_EMAIL jobs for each lead
+    // 5. Enqueue SEND_EMAIL jobs for each active, non-unsubscribed lead
     const template = campaign.template as any;
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const fromEmail = process.env.SENDER_EMAIL || 'outreach@transferlegacy.com';
+    const fromName = process.env.SENDER_NAME || 'Transfer Legacy';
+
     for (const lead of (leads || [])) {
+      if (unsubscribedEmails.has(lead.email.toLowerCase().trim())) {
+        // Skip enqueuing if unsubscribed (pre-filter)
+        continue;
+      }
+
       // Basic body rendering
       let html = template.body_html || '';
       html = html.replace(/\{\{first_name\}\}/g, lead.first_name || 'there');
       html = html.replace(/\{\{last_name\}\}/g, lead.last_name || '');
       html = html.replace(/\{\{email\}\}/g, lead.email);
 
+      // Append unsubscribe footer
+      const unsubscribeLink = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(lead.email)}&workspaceId=${workspaceId}`;
+      const unsubscribeFooter = `
+        <br/><br/>
+        <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+        <p style="font-size: 12px; color: #6b7280; font-family: sans-serif; line-height: 1.5;">
+          You are receiving this outreach email from ${fromName}.<br/>
+          To stop receiving emails, you can <a href="${unsubscribeLink}" style="color: #4f46e5; text-decoration: underline;" target="_blank">unsubscribe here</a>.
+        </p>
+      `;
+      html += unsubscribeFooter;
+
       await QueueService.enqueue('SEND_EMAIL', {
         campaignId: campaign.id,
         workspaceId,
         leadId: lead.id,
-        to: lead.email,
+        toEmail: lead.email,
+        fromEmail,
+        fromName,
         subject: template.subject || 'Outreach',
-        html,
-        from: `outreach@${workspaceId}.transferlegacy.com` // Placeholder logic for domain
+        html
       });
     }
 

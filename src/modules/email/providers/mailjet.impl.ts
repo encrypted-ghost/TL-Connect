@@ -25,6 +25,8 @@ export class MailjetEmailProvider implements IEmailProvider {
     try {
       const client = this.getClient();
       
+      const eventPayload = options.metadata ? JSON.stringify(options.metadata) : undefined;
+      
       const result = await client
         .post('send', { version: 'v3.1' })
         .request({
@@ -42,7 +44,8 @@ export class MailjetEmailProvider implements IEmailProvider {
               Subject: options.subject,
               HTMLPart: options.html,
               TextPart: options.text || options.html.replace(/<[^>]*>?/gm, ''),
-              CustomID: options.metadata?.customId,
+              CustomID: options.metadata?.jobId || options.metadata?.customId,
+              EventPayload: eventPayload,
             },
           ],
         });
