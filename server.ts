@@ -15,6 +15,8 @@ import { LeadService } from './src/modules/leads/lead.service.ts';
 import { QueueService } from './src/modules/queue/queue.service.ts';
 import { EmailProviderFactory } from './src/modules/email/email.factory.ts';
 import { supabaseAdmin } from './src/lib/supabaseAdmin.ts';
+import { serve } from 'inngest/express';
+import { inngest, inngestFunctions } from './src/modules/inngest/index.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -383,6 +385,9 @@ export async function createApp() {
       res.status(500).json({ error: e.message });
     }
   });
+
+  // Inngest Event Queue Handler (Public with Inngest Signing)
+  app.use('/api/inngest', serve({ client: inngest, functions: inngestFunctions }));
 
   // --- API ROUTER (AUTHENTICATED) ---
 

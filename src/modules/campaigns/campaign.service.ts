@@ -71,11 +71,22 @@ export class CampaignService {
     
     if (uError) throw uError;
 
-    // 5. Enqueue SEND_EMAIL jobs for each active, non-unsubscribed lead
+    // 5. Enqueue SEND_EMAIL jobs & Trigger Inngest Event Workflow
     const template = campaign.template as any;
     const appUrl = process.env.APP_URL || 'http://localhost:3000';
     const fromEmail = process.env.SENDER_EMAIL || 'outreach@transferlegacy.com';
     const fromName = process.env.SENDER_NAME || 'Transfer Legacy';
+
+    // Trigger Inngest Event Queue
+    try {
+      const { inngest } = await import('../../lib/inngest.client.ts');
+      await inngest.send({
+        name: 'outreach/campaign.started',
+        data: { campaignId, workspaceId },
+      });
+    } catch (err) {
+      console.warn('[CampaignService] Inngest event trigger warning, using fallback queue:', err);
+    }
 
     for (const lead of (leads || [])) {
       if (unsubscribedEmails.has(lead.email.toLowerCase().trim())) {
