@@ -26,7 +26,7 @@ import { apiClient } from '@/src/lib/apiClient';
 import { useEffect } from 'react';
 
 import { DomainManagement } from '@/src/components/domains/DomainManagement';
-import { TeamSettings } from '@/src/components/settings/TeamSettings';
+import { SettingsView } from '@/src/components/settings/SettingsView';
 
 type View = 'dashboard' | 'leads' | 'campaigns' | 'templates' | 'inbox' | 'domains' | 'automations' | 'settings';
 
@@ -308,6 +308,7 @@ export default function App() {
 
 // --- View Router ---
 interface ViewRendererProps {
+  key?: string;
   view: View;
   stats: any;
   onAction: (action: string, payload?: any) => void;
@@ -323,7 +324,7 @@ function ViewRenderer({ view, stats, onAction, onImportCSV }: ViewRendererProps)
     case 'inbox': return <InboxView onAction={onAction} />;
     case 'domains': return <DomainManagement />;
     case 'automations': return <AutomationsView onAction={onAction} />;
-    case 'settings': return <TeamSettings />;
+    case 'settings': return <SettingsView />;
     default: return <DashboardView stats={stats} onAction={onAction} />;
   }
 }

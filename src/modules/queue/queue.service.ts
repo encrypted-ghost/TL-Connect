@@ -157,14 +157,12 @@ export class QueueService {
         return;
       }
 
-      // 3. CHECK: Daily limit check
-      const { data: wsSettings } = await supabaseAdmin
-        .from('workspace_settings')
-        .select('email_daily_limit')
-        .eq('workspace_id', payload.workspaceId)
-        .maybeSingle();
-
-      const limit = wsSettings?.email_daily_limit ?? 1000;
+      // 3. Load DB-configured or fallback provider & sender for the workspace
+      const emailConfig = await EmailProviderFactory.getProviderForWorkspace(payload.workspaceId);
+      const provider = emailConfig.provider;
+      const effectiveFromEmail = payload.fromEmail || payload.from || emailConfig.fromEmail;
+      const effectiveFromName = payload.fromName || emailConfig.fromName;
+      const limit = emailConfig.dailyLimit || 1000;
       
       const startOfDay = new Date();
       startOfDay.setUTCHours(0, 0, 0, 0);
@@ -190,20 +188,20 @@ export class QueueService {
         return;
       }
 
-      // 4. Send Email
+      // 4. Send Email via dynamically loaded provider
       try {
-        const provider = EmailProviderFactory.getProvider();
         const result = await provider.send({
           toEmail,
-          fromEmail,
-          fromName,
+          fromEmail: effectiveFromEmail,
+          fromName: effectiveFromName,
           subject: payload.subject || 'Outreach',
           html: payload.html,
           metadata: {
             jobId: job.id,
             campaignId: payload.campaignId,
             leadId: payload.leadId,
-            workspaceId: payload.workspaceId
+            workspaceId: payload.workspaceId,
+            providerType: emailConfig.providerType,
           }
         });
         
@@ -220,8 +218,13 @@ export class QueueService {
           // Log activity
           await supabaseAdmin.from('activities').insert({
             type: 'EMAIL_SENT',
-            description: `Campaign email sent to ${toEmail}`,
-            metadata: { campaignId: payload.campaignId, leadId: payload.leadId },
+            description: `Campaign email sent to ${toEmail} via ${emailConfig.providerType}`,
+            metadata: { 
+              campaignId: payload.campaignId, 
+              leadId: payload.leadId,
+              provider: emailConfig.providerType,
+              messageId: result.messageId 
+            },
             lead_id: payload.leadId,
             workspace_id: payload.workspaceId
           });

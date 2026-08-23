@@ -13,17 +13,19 @@ import { CampaignService } from './src/modules/campaigns/campaign.service.ts';
 import { TemplateService } from './src/modules/templates/template.service.ts';
 import { LeadService } from './src/modules/leads/lead.service.ts';
 import { QueueService } from './src/modules/queue/queue.service.ts';
+import { EmailProviderFactory } from './src/modules/email/email.factory.ts';
 import { supabaseAdmin } from './src/lib/supabaseAdmin.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function startServer() {
+export async function createApp() {
   const app = express();
-  const PORT = 3000;
 
-  // Start background worker
-  QueueService.startWorker();
+  // Start background worker if not in serverless
+  if (process.env.VERCEL !== '1') {
+    QueueService.startWorker();
+  }
 
   app.use(cors());
   app.use(express.json());
@@ -277,6 +279,95 @@ async function startServer() {
     }
     
     res.status(200).json({ status: 'ok' });
+  });
+
+  // Brevo Webhook Endpoint (Public)
+  app.post('/api/webhooks/brevo', async (req, res) => {
+    try {
+      const event = req.body;
+      const email = event.email;
+      const eventType = event.event; // 'delivered', 'opened', 'click', 'hard_bounce', 'soft_bounce', 'unsubscribe'
+
+      if (email) {
+        let activityType = 'EMAIL_EVENT';
+        if (eventType === 'opened') activityType = 'EMAIL_OPENED';
+        else if (eventType === 'click') activityType = 'EMAIL_CLICKED';
+        else if (eventType?.includes('bounce')) activityType = 'EMAIL_BOUNCED';
+        else if (eventType === 'unsubscribe') {
+          activityType = 'EMAIL_UNSUBSCRIBED';
+          await supabaseAdmin.from('unsubscribes').insert({
+            email: String(email).toLowerCase().trim(),
+            workspace_id: event.workspaceId || 'default-workspace-id'
+          }).select().maybeSingle();
+        }
+
+        await supabaseAdmin.from('activities').insert({
+          type: activityType,
+          description: `Brevo event: ${eventType} for ${email}`,
+          metadata: { ...event, provider: 'brevo' },
+          workspace_id: event.workspaceId || 'default-workspace-id'
+        });
+      }
+      res.status(200).json({ status: 'ok' });
+    } catch (err: any) {
+      console.error('Brevo webhook error:', err);
+      res.status(200).json({ status: 'ok' });
+    }
+  });
+
+  // Resend Webhook Endpoint (Public)
+  app.post('/api/webhooks/resend', async (req, res) => {
+    try {
+      const { type, data } = req.body;
+      const email = data?.to?.[0];
+      if (email && type) {
+        let activityType = 'EMAIL_EVENT';
+        if (type === 'email.opened') activityType = 'EMAIL_OPENED';
+        else if (type === 'email.clicked') activityType = 'EMAIL_CLICKED';
+        else if (type === 'email.bounced') activityType = 'EMAIL_BOUNCED';
+        else if (type === 'email.complained') activityType = 'EMAIL_SPAM';
+
+        await supabaseAdmin.from('activities').insert({
+          type: activityType,
+          description: `Resend event: ${type} for ${email}`,
+          metadata: { ...data, eventType: type, provider: 'resend' },
+          workspace_id: data?.workspaceId || 'default-workspace-id'
+        });
+      }
+      res.status(200).json({ status: 'ok' });
+    } catch (err: any) {
+      console.error('Resend webhook error:', err);
+      res.status(200).json({ status: 'ok' });
+    }
+  });
+
+  // SendGrid Webhook Endpoint (Public)
+  app.post('/api/webhooks/sendgrid', async (req, res) => {
+    try {
+      const events = Array.isArray(req.body) ? req.body : [req.body];
+      for (const event of events) {
+        const email = event.email;
+        const eventType = event.event;
+        if (email) {
+          let activityType = 'EMAIL_EVENT';
+          if (eventType === 'open') activityType = 'EMAIL_OPENED';
+          else if (eventType === 'click') activityType = 'EMAIL_CLICKED';
+          else if (eventType === 'bounce' || eventType === 'dropped') activityType = 'EMAIL_BOUNCED';
+          else if (eventType === 'spamreport') activityType = 'EMAIL_SPAM';
+
+          await supabaseAdmin.from('activities').insert({
+            type: activityType,
+            description: `SendGrid event: ${eventType} for ${email}`,
+            metadata: { ...event, provider: 'sendgrid' },
+            workspace_id: event.workspaceId || 'default-workspace-id'
+          });
+        }
+      }
+      res.status(200).json({ status: 'ok' });
+    } catch (err: any) {
+      console.error('SendGrid webhook error:', err);
+      res.status(200).json({ status: 'ok' });
+    }
   });
 
   // Cron queue processing endpoint (Public, protected by token)
@@ -572,6 +663,178 @@ async function startServer() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // Email Providers (Settings)
+  api.get('/settings/email-providers', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('email_providers')
+        .select('*')
+        .eq('workspace_id', req.user!.workspaceId)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      res.json(data || []);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  api.post('/settings/email-providers', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
+    try {
+      const { provider_type, name, from_email, from_name, reply_to, credentials, daily_limit, is_default } = req.body;
+
+      if (!provider_type || !from_email || !from_name) {
+        return res.status(400).json({ error: 'provider_type, from_email, and from_name are required' });
+      }
+
+      // If this is set as default, unset other defaults
+      if (is_default) {
+        await supabaseAdmin
+          .from('email_providers')
+          .update({ is_default: false })
+          .eq('workspace_id', req.user!.workspaceId);
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('email_providers')
+        .insert({
+          workspace_id: req.user!.workspaceId,
+          provider_type,
+          name: name || `${provider_type.toUpperCase()} Provider`,
+          from_email,
+          from_name,
+          reply_to: reply_to || null,
+          credentials: credentials || {},
+          daily_limit: Number(daily_limit) || 1000,
+          is_active: true,
+          is_default: !!is_default,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  api.put('/settings/email-providers/:id', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { provider_type, name, from_email, from_name, reply_to, credentials, daily_limit, is_active, is_default } = req.body;
+
+      if (is_default) {
+        await supabaseAdmin
+          .from('email_providers')
+          .update({ is_default: false })
+          .eq('workspace_id', req.user!.workspaceId);
+      }
+
+      const updateData: any = { updated_at: new Date().toISOString() };
+      if (provider_type !== undefined) updateData.provider_type = provider_type;
+      if (name !== undefined) updateData.name = name;
+      if (from_email !== undefined) updateData.from_email = from_email;
+      if (from_name !== undefined) updateData.from_name = from_name;
+      if (reply_to !== undefined) updateData.reply_to = reply_to;
+      if (credentials !== undefined) updateData.credentials = credentials;
+      if (daily_limit !== undefined) updateData.daily_limit = Number(daily_limit);
+      if (is_active !== undefined) updateData.is_active = is_active;
+      if (is_default !== undefined) updateData.is_default = is_default;
+
+      const { data, error } = await supabaseAdmin
+        .from('email_providers')
+        .update(updateData)
+        .eq('id', id)
+        .eq('workspace_id', req.user!.workspaceId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  api.delete('/settings/email-providers/:id', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { error } = await supabaseAdmin
+        .from('email_providers')
+        .delete()
+        .eq('id', id)
+        .eq('workspace_id', req.user!.workspaceId);
+
+      if (error) throw error;
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  api.post('/settings/email-providers/:id/set-default', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
+    try {
+      const { id } = req.params;
+      // Unset previous defaults
+      await supabaseAdmin
+        .from('email_providers')
+        .update({ is_default: false })
+        .eq('workspace_id', req.user!.workspaceId);
+
+      const { data, error } = await supabaseAdmin
+        .from('email_providers')
+        .update({ is_default: true, is_active: true, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('workspace_id', req.user!.workspaceId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Test Email Sending
+  api.post('/settings/email-providers/test', requirePermission(PERMISSIONS.SETTINGS_EDIT), async (req, res) => {
+    try {
+      const { provider_type, credentials, from_email, from_name, test_to_email } = req.body;
+      const targetEmail = test_to_email || req.user!.email;
+
+      if (!targetEmail) {
+        return res.status(400).json({ error: 'Target email for test is required' });
+      }
+
+      const provider = EmailProviderFactory.createProvider(provider_type, credentials);
+      const result = await provider.send({
+        toEmail: targetEmail,
+        fromEmail: from_email || 'outreach@transferlegacy.com',
+        fromName: from_name || 'TL Connect Tester',
+        subject: `[TL Connect] Test Email via ${provider_type?.toUpperCase()}`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #4f46e5;">TL Connect Test Message</h2>
+            <p>Congratulations! Your <strong>${provider_type?.toUpperCase()}</strong> configuration is working properly.</p>
+            <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 15px 0;">
+            <p style="font-size: 12px; color: #64748b;">Timestamp: ${new Date().toISOString()}</p>
+          </div>
+        `,
+        text: `TL Connect Test Message. Your ${provider_type?.toUpperCase()} configuration is working properly.`,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error || 'Failed to send test email' });
+      }
+
+      res.json({ success: true, messageId: result.messageId, provider: result.provider });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   app.use('/api', api);
 
   // --- VITE MIDDLEWARE ---
@@ -589,9 +852,17 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  return app;
+}
+
+export async function startServer() {
+  const app = await createApp();
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+if (process.env.VERCEL !== '1' && !process.env.NOW_REGION) {
+  startServer();
+}

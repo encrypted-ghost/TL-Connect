@@ -2,31 +2,43 @@ import type { IEmailProvider, EmailProviderOptions, SendResult } from '../provid
 import Mailjet from 'node-mailjet';
 import { env } from '../../../config/env.config.ts';
 
+export interface MailjetCredentials {
+  apiKey?: string;
+  apiSecret?: string;
+}
+
 export class MailjetEmailProvider implements IEmailProvider {
   name = 'mailjet';
   private client: Mailjet | null = null;
+  private apiKey: string;
+  private apiSecret: string;
+
+  constructor(credentials?: MailjetCredentials) {
+    this.apiKey = credentials?.apiKey || env.MAILJET_API_KEY || process.env.MAILJET_API_KEY || '';
+    this.apiSecret = credentials?.apiSecret || env.MAILJET_API_SECRET || process.env.MAILJET_API_SECRET || '';
+  }
 
   private getClient() {
     if (this.client) return this.client;
-    
-    if (!env.MAILJET_API_KEY || !env.MAILJET_API_SECRET) {
+
+    if (!this.apiKey || !this.apiSecret) {
       throw new Error('Mailjet API keys are missing');
     }
 
     this.client = new Mailjet({
-      apiKey: env.MAILJET_API_KEY,
-      apiSecret: env.MAILJET_API_SECRET
+      apiKey: this.apiKey,
+      apiSecret: this.apiSecret,
     });
-    
+
     return this.client;
   }
 
   async send(options: EmailProviderOptions): Promise<SendResult> {
     try {
       const client = this.getClient();
-      
+
       const eventPayload = options.metadata ? JSON.stringify(options.metadata) : undefined;
-      
+
       const result = await client
         .post('send', { version: 'v3.1' })
         .request({
@@ -51,10 +63,10 @@ export class MailjetEmailProvider implements IEmailProvider {
         });
 
       const message = (result.body as any).Messages[0];
-      
+
       return {
-        success: message.Status === 'success',
-        messageId: message.To[0]?.MessageID,
+        success: message?.Status === 'success',
+        messageId: message?.To?.[0]?.MessageID,
         provider: this.name,
       };
     } catch (error: any) {

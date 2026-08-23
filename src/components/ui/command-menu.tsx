@@ -170,7 +170,7 @@ export function CommandMenu({ onSelectAction }: CommandMenuProps) {
   );
 }
 
-function CommandItem({ icon, label, shortcut, onSelect }: { icon: React.ReactNode, label: string, shortcut?: string, onSelect: () => void }) {
+function CommandItem({ icon, label, shortcut, onSelect }: { icon: React.ReactNode, label: string, shortcut?: string, onSelect: () => void, key?: React.Key }) {
   return (
     <Command.Item 
       onSelect={onSelect}
