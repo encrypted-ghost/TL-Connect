@@ -48,7 +48,6 @@
     "jose": "^6.2.3",
     "lucide-react": "^0.546.0",
     "mailgun.js": "^13.0.1",
-    "mjml-browser": "^5.4.0",
     "motion": "^12.38.0",
     "node-mailjet": "^6.0.11",
     "nodemailer": "^9.0.5",

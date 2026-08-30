@@ -17,7 +17,7 @@ import {
   Info
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
-import mjml2html from 'mjml-browser';
+import { renderMjmlToHtml } from '@/src/lib/mjmlRenderer';
 
 interface TemplateFormProps {
   initialData?: any;
@@ -163,10 +163,7 @@ export function TemplateForm({ initialData, onSubmit, onCancel, isSubmitting }: 
     }
 
     try {
-      const result = mjml2html(code, {
-        keepComments: false,
-        validationLevel: 'soft',
-      });
+      const result = renderMjmlToHtml(code);
       return { html: result.html || '', errors: result.errors || [] };
     } catch (err: any) {
       return { html: `<div style="color: red; padding: 20px;">MJML Compile Error: ${err.message}</div>`, errors: [err] };
