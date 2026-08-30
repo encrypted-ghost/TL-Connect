@@ -1,12 +1,13 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { QueueService } from '../queue/queue.service';
 import { TemplateService } from '../templates/template.service';
+import { EmailProviderFactory } from '../email/email.factory';
 
 export class CampaignService {
   static async getCampaigns(workspaceId: string) {
     const { data, error } = await supabaseAdmin
       .from('campaigns')
-      .select('*, template:templates(name, subject)')
+      .select('*, template:templates(id, name, subject)')
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: false });
 
@@ -26,7 +27,7 @@ export class CampaignService {
         provider_id: data.providerId || data.provider_id || null,
         status: 'DRAFT'
       })
-      .select()
+      .select('*, template:templates(id, name, subject)')
       .single();
 
     if (error) throw error;
@@ -58,7 +59,7 @@ export class CampaignService {
       .update(updateData)
       .eq('id', campaignId)
       .eq('workspace_id', workspaceId)
-      .select('*, template:templates(name, subject)')
+      .select('*, template:templates(id, name, subject)')
       .single();
 
     if (error) throw error;
@@ -75,7 +76,7 @@ export class CampaignService {
       .single();
 
     if (cError || !campaign) throw new Error('Campaign not found');
-    if (!campaign.template) throw new Error('Campaign has no template');
+    if (!campaign.template) throw new Error('Campaign has no email template selected');
 
     // 2. Fetch targeted leads for this workspace
     let query = supabaseAdmin
@@ -84,7 +85,7 @@ export class CampaignService {
       .eq('workspace_id', workspaceId)
       .eq('is_deleted', false);
 
-    // Apply audience filters if configured
+    // Apply audience filters
     if (campaign.target_category && campaign.target_category !== 'ALL') {
       query = query.eq('category', campaign.target_category);
     }
@@ -92,14 +93,23 @@ export class CampaignService {
       query = query.eq('status', campaign.target_status);
     }
 
-    const { data: leads, error: lError } = await query;
-    if (lError) throw lError;
+    let { data: leads, error: lError } = await query;
 
-    if (!leads || leads.length === 0) {
-      throw new Error('No leads matched the audience filter for this campaign.');
+    if (lError) {
+      console.warn('[CampaignService] Targeted query fallback:', lError.message);
+      const fallbackRes = await supabaseAdmin
+        .from('leads')
+        .select('id, email, first_name, last_name, status')
+        .eq('workspace_id', workspaceId)
+        .eq('is_deleted', false);
+      leads = fallbackRes.data || [];
     }
 
-    // 3. Fetch unsubscribed emails for this workspace to pre-filter
+    if (!leads || leads.length === 0) {
+      throw new Error(`No leads matched the audience filter (${campaign.target_category || 'All Categories'}, ${campaign.target_status || 'All Statuses'}).`);
+    }
+
+    // 3. Fetch unsubscribed emails for suppression
     const { data: unsubscribed } = await supabaseAdmin
       .from('unsubscribes')
       .select('email')
@@ -108,7 +118,7 @@ export class CampaignService {
     const unsubscribedEmails = new Set((unsubscribed || []).map(u => u.email.toLowerCase().trim()));
 
     // 4. Mark Campaign as RUNNING
-    const { error: uError } = await supabaseAdmin
+    await supabaseAdmin
       .from('campaigns')
       .update({ 
         status: 'RUNNING',
@@ -116,37 +126,47 @@ export class CampaignService {
         updated_at: new Date().toISOString()
       })
       .eq('id', campaignId);
-    
-    if (uError) throw uError;
 
-    // 5. Enqueue SEND_EMAIL jobs & Trigger Inngest Event Workflow
+    // 5. Load Active Email Provider
+    const emailConfig = await EmailProviderFactory.getProviderForWorkspace(workspaceId, campaign.provider_id);
+    const provider = emailConfig.provider;
     const template = campaign.template as any;
     const appUrl = process.env.APP_URL || 'https://connect.transferlegacy.com';
-    const fromEmail = process.env.SENDER_EMAIL || 'outreach@transferlegacy.com';
-    const fromName = process.env.SENDER_NAME || 'Transfer Legacy';
+    const fromEmail = emailConfig.fromEmail || process.env.SENDER_EMAIL || 'outreach@transferlegacy.com';
+    const fromName = emailConfig.fromName || process.env.SENDER_NAME || 'Transfer Legacy';
 
-    // Trigger Inngest Event Queue
-    try {
-      const { inngest } = await import('../../lib/inngest.client');
-      await inngest.send({
-        name: 'outreach/campaign.started',
-        data: { campaignId, workspaceId },
-      });
-    } catch (err) {
-      console.warn('[CampaignService] Inngest event trigger warning, using fallback queue:', err);
-    }
+    let sentCount = 0;
+    let failedCount = 0;
 
-    let enqueuedCount = 0;
-    for (const lead of (leads || [])) {
+    // 6. Direct Immediate Dispatch Loop
+    for (const lead of leads) {
       if (unsubscribedEmails.has(lead.email.toLowerCase().trim())) {
+        // Record suppression
+        try {
+          await supabaseAdmin.from('activities').insert({
+            type: 'EMAIL_SUPPRESSED',
+            description: `Campaign email to ${lead.email} suppressed (unsubscribed)`,
+            metadata: { 
+              campaignId: campaign.id, 
+              campaignName: campaign.name,
+              leadId: lead.id, 
+              toEmail: lead.email,
+              provider: emailConfig.providerType,
+              reason: 'unsubscribed' 
+            },
+            lead_id: lead.id,
+            workspace_id: workspaceId
+          });
+        } catch {}
         continue;
       }
 
-      // Variable interpolation
+      // Interpolate template variables
       let html = template.body_html || '';
+      const leadCompany = lead.company_name || 'your company';
       html = html.replace(/\{\{first_name\}\}/gi, lead.first_name || 'there');
       html = html.replace(/\{\{last_name\}\}/gi, lead.last_name || '');
-      html = html.replace(/\{\{company\}\}/gi, lead.company_name || 'your company');
+      html = html.replace(/\{\{company\}\}/gi, leadCompany);
       html = html.replace(/\{\{email\}\}/gi, lead.email);
 
       // Append unsubscribe footer
@@ -161,20 +181,118 @@ export class CampaignService {
       `;
       html += unsubscribeFooter;
 
-      await QueueService.enqueue('SEND_EMAIL', {
-        campaignId: campaign.id,
-        workspaceId,
-        leadId: lead.id,
-        toEmail: lead.email,
-        fromEmail,
-        fromName,
-        subject: template.subject || 'Outreach',
-        html
-      });
-      enqueuedCount++;
+      const recipientName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || lead.email;
+      const subject = template.subject || campaign.name || 'Outreach';
+
+      try {
+        const sendResult = await provider.send({
+          toEmail: lead.email,
+          fromEmail,
+          fromName,
+          subject,
+          html,
+          text: html.replace(/<[^>]*>?/gm, ''),
+          metadata: {
+            campaignId: campaign.id,
+            leadId: lead.id,
+            workspaceId,
+            providerType: emailConfig.providerType
+          }
+        });
+
+        if (sendResult.success) {
+          sentCount++;
+          // Log success activity
+          await supabaseAdmin.from('activities').insert({
+            type: 'EMAIL_SENT',
+            description: `Campaign "${campaign.name}" email sent to ${lead.email} via ${emailConfig.providerType}`,
+            metadata: { 
+              campaignId: campaign.id,
+              campaignName: campaign.name,
+              leadId: lead.id, 
+              toEmail: lead.email,
+              recipientName,
+              company: leadCompany,
+              provider: emailConfig.providerType,
+              messageId: sendResult.messageId,
+              subject
+            },
+            lead_id: lead.id,
+            workspace_id: workspaceId
+          });
+
+          // Mark lead contacted
+          await supabaseAdmin
+            .from('leads')
+            .update({ status: 'CONTACTED', updated_at: new Date().toISOString() })
+            .eq('id', lead.id);
+        } else {
+          failedCount++;
+          await supabaseAdmin.from('activities').insert({
+            type: 'EMAIL_FAILED',
+            description: `Campaign email to ${lead.email} failed: ${sendResult.error || 'Unknown error'}`,
+            metadata: { 
+              campaignId: campaign.id, 
+              campaignName: campaign.name,
+              leadId: lead.id, 
+              toEmail: lead.email,
+              recipientName,
+              company: leadCompany,
+              error: sendResult.error, 
+              provider: emailConfig.providerType, 
+              subject 
+            },
+            lead_id: lead.id,
+            workspace_id: workspaceId
+          });
+        }
+      } catch (sendErr: any) {
+        failedCount++;
+        console.error(`[CampaignService] Error dispatching to ${lead.email}:`, sendErr);
+        try {
+          await supabaseAdmin.from('activities').insert({
+            type: 'EMAIL_FAILED',
+            description: `Campaign email to ${lead.email} error: ${sendErr.message}`,
+            metadata: { 
+              campaignId: campaign.id, 
+              campaignName: campaign.name,
+              leadId: lead.id, 
+              toEmail: lead.email,
+              recipientName,
+              error: sendErr.message, 
+              provider: emailConfig.providerType, 
+              subject 
+            },
+            lead_id: lead.id,
+            workspace_id: workspaceId
+          });
+        } catch {}
+      }
     }
 
-    return { ...campaign, enqueuedCount };
+    // 7. Update Campaign Status & Statistics
+    const currentSent = (campaign.stats_sent || 0) + sentCount;
+    const finalStatus = sentCount > 0 ? 'COMPLETED' : (failedCount > 0 ? 'FAILED' : 'COMPLETED');
+
+    const { data: updatedCampaign } = await supabaseAdmin
+      .from('campaigns')
+      .update({ 
+        status: finalStatus,
+        stats_sent: currentSent,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', campaignId)
+      .select('*, template:templates(id, name, subject)')
+      .single();
+
+    return { 
+      ...(updatedCampaign || campaign), 
+      sentCount, 
+      failedCount, 
+      totalTargeted: leads.length,
+      provider: emailConfig.providerType 
+    };
   }
 
   static async stopCampaign(campaignId: string, workspaceId: string) {
@@ -186,7 +304,7 @@ export class CampaignService {
       })
       .eq('id', campaignId)
       .eq('workspace_id', workspaceId)
-      .select()
+      .select('*, template:templates(id, name, subject)')
       .single();
 
     if (error) throw error;

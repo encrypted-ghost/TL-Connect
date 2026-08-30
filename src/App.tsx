@@ -751,11 +751,20 @@ function CampaignsView() {
 
   const handleStart = async (id: string) => {
     try {
-      await apiClient.post(`/campaigns/${id}/start`);
-      toast.success('Campaign started');
+      const res = await apiClient.post(`/campaigns/${id}/start`);
+      const sent = res.data?.sentCount ?? 0;
+      const failed = res.data?.failedCount ?? 0;
+      const provider = res.data?.provider || 'provider';
+      if (sent > 0) {
+        toast.success(`Dispatched ${sent} emails via ${provider.toUpperCase()}!`);
+      } else if (failed > 0) {
+        toast.error(`Dispatch encountered issues (${failed} failed). Check Dispatch Logs.`);
+      } else {
+        toast.info('Campaign processed.');
+      }
       fetchCampaigns();
-    } catch (err) {
-      toast.error('Failed to start campaign');
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || err.message || 'Failed to start campaign');
     }
   };
 

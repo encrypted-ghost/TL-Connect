@@ -42,22 +42,6 @@ var init_supabaseAdmin = __esm({
   }
 });
 
-// src/lib/inngest.client.ts
-var inngest_client_exports = {};
-__export(inngest_client_exports, {
-  inngest: () => inngest
-});
-import { Inngest } from "inngest";
-var inngest;
-var init_inngest_client = __esm({
-  "src/lib/inngest.client.ts"() {
-    inngest = new Inngest({
-      id: "tl-connect",
-      name: "TL Connect Outreach Engine"
-    });
-  }
-});
-
 // src/modules/activity/activity.service.ts
 var activity_service_exports = {};
 __export(activity_service_exports, {
@@ -399,9 +383,6 @@ var AnalyticsService = class {
 };
 
 // src/modules/campaigns/campaign.service.ts
-init_supabaseAdmin();
-
-// src/modules/queue/queue.service.ts
 init_supabaseAdmin();
 
 // src/modules/email/providers/mock.impl.ts
@@ -883,10 +864,16 @@ var EmailProviderFactory = class {
   /**
    * Fetch active provider configuration for a workspace from the Database
    */
-  static async getProviderForWorkspace(workspaceId) {
+  static async getProviderForWorkspace(workspaceId, providerId) {
     try {
       if (workspaceId) {
-        const { data: providers, error } = await supabaseAdmin.from("email_providers").select("*").eq("workspace_id", workspaceId).eq("is_active", true).order("is_default", { ascending: false }).order("created_at", { ascending: false });
+        let query = supabaseAdmin.from("email_providers").select("*").eq("workspace_id", workspaceId).eq("is_active", true);
+        if (providerId) {
+          query = query.eq("id", providerId);
+        } else {
+          query = query.order("is_default", { ascending: false }).order("created_at", { ascending: false });
+        }
+        const { data: providers, error } = await query;
         if (!error && providers && providers.length > 0) {
           const config = providers[0];
           const providerInstance = this.createProvider(config.provider_type, config.credentials);
@@ -962,217 +949,10 @@ var EmailProviderFactory = class {
   }
 };
 
-// src/modules/queue/queue.service.ts
-var QueueService = class {
-  static {
-    this.isProcessing = false;
-  }
-  /**
-   * Add a job to the queue using Supabase
-   */
-  static async enqueue(type, payload, priority = 0) {
-    const workspaceId = payload.workspaceId || payload.workspace_id || null;
-    const { data, error } = await supabaseAdmin.from("queue_jobs").insert([{
-      type,
-      payload,
-      priority,
-      status: "PENDING",
-      run_at: (/* @__PURE__ */ new Date()).toISOString(),
-      workspace_id: workspaceId
-    }]).select().single();
-    if (error) throw new Error(error.message);
-    return data;
-  }
-  /**
-   * Process pending jobs with Supabase
-   */
-  static async processNext() {
-    if (this.isProcessing) return;
-    this.isProcessing = true;
-    try {
-      const { data: job, error: fetchError } = await supabaseAdmin.from("queue_jobs").select("*").eq("status", "PENDING").lte("run_at", (/* @__PURE__ */ new Date()).toISOString()).order("priority", { ascending: false }).order("created_at", { ascending: true }).limit(1).maybeSingle();
-      if (!job || fetchError) {
-        this.isProcessing = false;
-        return;
-      }
-      await this.processJob(job);
-    } catch (error) {
-      console.error("Queue Processing Error:", error);
-    } finally {
-      this.isProcessing = false;
-    }
-  }
-  /**
-   * Process a batch of pending jobs sequentially (used for cron)
-   */
-  static async processBatch(limit = 10) {
-    if (this.isProcessing) return 0;
-    this.isProcessing = true;
-    let processedCount = 0;
-    try {
-      const { data: jobs, error: fetchError } = await supabaseAdmin.from("queue_jobs").select("*").eq("status", "PENDING").lte("run_at", (/* @__PURE__ */ new Date()).toISOString()).order("priority", { ascending: false }).order("created_at", { ascending: true }).limit(limit);
-      if (fetchError || !jobs || jobs.length === 0) {
-        return 0;
-      }
-      for (const job of jobs) {
-        await this.processJob(job);
-        processedCount++;
-      }
-    } catch (error) {
-      console.error("Batch Queue Processing Error:", error);
-    } finally {
-      this.isProcessing = false;
-    }
-    return processedCount;
-  }
-  /**
-   * Core logic to process a single queue job
-   */
-  static async processJob(job) {
-    await supabaseAdmin.from("queue_jobs").update({ status: "PROCESSING", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", job.id);
-    let success = true;
-    let lastError = null;
-    const payload = job.payload;
-    if (job.type === "SEND_EMAIL") {
-      const toEmail = payload.toEmail || payload.to;
-      const fromEmail = payload.fromEmail || payload.from || process.env.SENDER_EMAIL || "outreach@transferlegacy.com";
-      const fromName = payload.fromName || process.env.SENDER_NAME || "Transfer Legacy";
-      const { data: campaign } = await supabaseAdmin.from("campaigns").select("status, stats_sent").eq("id", payload.campaignId).single();
-      if (!campaign || campaign.status !== "RUNNING") {
-        await supabaseAdmin.from("queue_jobs").update({
-          status: "COMPLETED",
-          last_error: "Campaign not running",
-          updated_at: (/* @__PURE__ */ new Date()).toISOString()
-        }).eq("id", job.id);
-        if (payload.campaignId) {
-          await this.checkCampaignCompletion(payload.campaignId);
-        }
-        return;
-      }
-      const { data: isUnsubscribed } = await supabaseAdmin.from("unsubscribes").select("id").eq("email", toEmail).eq("workspace_id", payload.workspaceId).maybeSingle();
-      if (isUnsubscribed) {
-        await supabaseAdmin.from("queue_jobs").update({
-          status: "COMPLETED",
-          last_error: "Suppressed: Recipient unsubscribed",
-          updated_at: (/* @__PURE__ */ new Date()).toISOString()
-        }).eq("id", job.id);
-        await supabaseAdmin.from("activities").insert({
-          type: "EMAIL_SUPPRESSED",
-          description: `Email to ${toEmail} suppressed (unsubscribed)`,
-          metadata: { campaignId: payload.campaignId, leadId: payload.leadId, reason: "unsubscribed" },
-          lead_id: payload.leadId,
-          workspace_id: payload.workspaceId
-        });
-        if (payload.campaignId) {
-          await this.checkCampaignCompletion(payload.campaignId);
-        }
-        return;
-      }
-      const emailConfig = await EmailProviderFactory.getProviderForWorkspace(payload.workspaceId);
-      const provider = emailConfig.provider;
-      const effectiveFromEmail = payload.fromEmail || payload.from || emailConfig.fromEmail;
-      const effectiveFromName = payload.fromName || emailConfig.fromName;
-      const limit = emailConfig.dailyLimit || 1e3;
-      const startOfDay = /* @__PURE__ */ new Date();
-      startOfDay.setUTCHours(0, 0, 0, 0);
-      const { count: sentCount } = await supabaseAdmin.from("activities").select("*", { count: "exact", head: true }).eq("workspace_id", payload.workspaceId).eq("type", "EMAIL_SENT").gte("created_at", startOfDay.toISOString());
-      if ((sentCount || 0) >= limit) {
-        const tomorrow = /* @__PURE__ */ new Date();
-        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-        tomorrow.setUTCHours(0, 0, 5, 0);
-        await supabaseAdmin.from("queue_jobs").update({
-          status: "PENDING",
-          run_at: tomorrow.toISOString(),
-          last_error: `Daily limit exceeded (${sentCount}/${limit}), postponed to tomorrow`,
-          updated_at: (/* @__PURE__ */ new Date()).toISOString()
-        }).eq("id", job.id);
-        return;
-      }
-      try {
-        const result = await provider.send({
-          toEmail,
-          fromEmail: effectiveFromEmail,
-          fromName: effectiveFromName,
-          subject: payload.subject || "Outreach",
-          html: payload.html,
-          metadata: {
-            jobId: job.id,
-            campaignId: payload.campaignId,
-            leadId: payload.leadId,
-            workspaceId: payload.workspaceId,
-            providerType: emailConfig.providerType
-          }
-        });
-        success = result.success;
-        lastError = result.error;
-        if (success) {
-          await supabaseAdmin.from("campaigns").update({ stats_sent: (campaign.stats_sent || 0) + 1 }).eq("id", payload.campaignId);
-          await supabaseAdmin.from("activities").insert({
-            type: "EMAIL_SENT",
-            description: `Campaign email sent to ${toEmail} via ${emailConfig.providerType}`,
-            metadata: {
-              campaignId: payload.campaignId,
-              leadId: payload.leadId,
-              provider: emailConfig.providerType,
-              messageId: result.messageId
-            },
-            lead_id: payload.leadId,
-            workspace_id: payload.workspaceId
-          });
-        }
-      } catch (err) {
-        success = false;
-        lastError = err.message;
-      }
-    }
-    if (success) {
-      await supabaseAdmin.from("queue_jobs").update({
-        status: "COMPLETED",
-        updated_at: (/* @__PURE__ */ new Date()).toISOString()
-      }).eq("id", job.id);
-    } else {
-      const newRetryCount = (job.retry_count || 0) + 1;
-      const maxRetries = job.max_retries || 3;
-      const status = newRetryCount >= maxRetries ? "FAILED" : "PENDING";
-      await supabaseAdmin.from("queue_jobs").update({
-        status,
-        retry_count: newRetryCount,
-        last_error: lastError,
-        run_at: new Date(Date.now() + Math.pow(2, newRetryCount) * 5e3).toISOString(),
-        updated_at: (/* @__PURE__ */ new Date()).toISOString()
-      }).eq("id", job.id);
-    }
-    if (payload.campaignId) {
-      await this.checkCampaignCompletion(payload.campaignId);
-    }
-  }
-  /**
-   * Helper to verify and update campaign status if all enqueued jobs are processed
-   */
-  static async checkCampaignCompletion(campaignId) {
-    const { count, error } = await supabaseAdmin.from("queue_jobs").select("*", { count: "exact", head: true }).eq("payload->>campaignId", campaignId).in("status", ["PENDING", "PROCESSING"]);
-    if (!error && count === 0) {
-      await supabaseAdmin.from("campaigns").update({
-        status: "COMPLETED",
-        completed_at: (/* @__PURE__ */ new Date()).toISOString(),
-        updated_at: (/* @__PURE__ */ new Date()).toISOString()
-      }).eq("id", campaignId);
-    }
-  }
-  /**
-   * Start the worker loop
-   */
-  static startWorker() {
-    setInterval(async () => {
-      await this.processNext();
-    }, 15e3);
-  }
-};
-
 // src/modules/campaigns/campaign.service.ts
 var CampaignService = class {
   static async getCampaigns(workspaceId) {
-    const { data, error } = await supabaseAdmin.from("campaigns").select("*, template:templates(name, subject)").eq("workspace_id", workspaceId).order("created_at", { ascending: false });
+    const { data, error } = await supabaseAdmin.from("campaigns").select("*, template:templates(id, name, subject)").eq("workspace_id", workspaceId).order("created_at", { ascending: false });
     if (error) throw error;
     return data;
   }
@@ -1185,7 +965,7 @@ var CampaignService = class {
       target_status: data.targetStatus || data.target_status || null,
       provider_id: data.providerId || data.provider_id || null,
       status: "DRAFT"
-    }).select().single();
+    }).select("*, template:templates(id, name, subject)").single();
     if (error) throw error;
     return campaign;
   }
@@ -1207,14 +987,14 @@ var CampaignService = class {
       updateData.provider_id = data.providerId ?? data.provider_id;
     }
     if (data.status !== void 0) updateData.status = data.status;
-    const { data: campaign, error } = await supabaseAdmin.from("campaigns").update(updateData).eq("id", campaignId).eq("workspace_id", workspaceId).select("*, template:templates(name, subject)").single();
+    const { data: campaign, error } = await supabaseAdmin.from("campaigns").update(updateData).eq("id", campaignId).eq("workspace_id", workspaceId).select("*, template:templates(id, name, subject)").single();
     if (error) throw error;
     return campaign;
   }
   static async startCampaign(campaignId, workspaceId) {
     const { data: campaign, error: cError } = await supabaseAdmin.from("campaigns").select("*, template:templates(*)").eq("id", campaignId).eq("workspace_id", workspaceId).single();
     if (cError || !campaign) throw new Error("Campaign not found");
-    if (!campaign.template) throw new Error("Campaign has no template");
+    if (!campaign.template) throw new Error("Campaign has no email template selected");
     let query = supabaseAdmin.from("leads").select("id, email, first_name, last_name, company_name, category, status").eq("workspace_id", workspaceId).eq("is_deleted", false);
     if (campaign.target_category && campaign.target_category !== "ALL") {
       query = query.eq("category", campaign.target_category);
@@ -1222,41 +1002,56 @@ var CampaignService = class {
     if (campaign.target_status && campaign.target_status !== "ALL") {
       query = query.eq("status", campaign.target_status);
     }
-    const { data: leads, error: lError } = await query;
-    if (lError) throw lError;
+    let { data: leads, error: lError } = await query;
+    if (lError) {
+      console.warn("[CampaignService] Targeted query fallback:", lError.message);
+      const fallbackRes = await supabaseAdmin.from("leads").select("id, email, first_name, last_name, status").eq("workspace_id", workspaceId).eq("is_deleted", false);
+      leads = fallbackRes.data || [];
+    }
     if (!leads || leads.length === 0) {
-      throw new Error("No leads matched the audience filter for this campaign.");
+      throw new Error(`No leads matched the audience filter (${campaign.target_category || "All Categories"}, ${campaign.target_status || "All Statuses"}).`);
     }
     const { data: unsubscribed } = await supabaseAdmin.from("unsubscribes").select("email").eq("workspace_id", workspaceId);
     const unsubscribedEmails = new Set((unsubscribed || []).map((u) => u.email.toLowerCase().trim()));
-    const { error: uError } = await supabaseAdmin.from("campaigns").update({
+    await supabaseAdmin.from("campaigns").update({
       status: "RUNNING",
       started_at: (/* @__PURE__ */ new Date()).toISOString(),
       updated_at: (/* @__PURE__ */ new Date()).toISOString()
     }).eq("id", campaignId);
-    if (uError) throw uError;
+    const emailConfig = await EmailProviderFactory.getProviderForWorkspace(workspaceId, campaign.provider_id);
+    const provider = emailConfig.provider;
     const template = campaign.template;
     const appUrl = process.env.APP_URL || "https://connect.transferlegacy.com";
-    const fromEmail = process.env.SENDER_EMAIL || "outreach@transferlegacy.com";
-    const fromName = process.env.SENDER_NAME || "Transfer Legacy";
-    try {
-      const { inngest: inngest2 } = await Promise.resolve().then(() => (init_inngest_client(), inngest_client_exports));
-      await inngest2.send({
-        name: "outreach/campaign.started",
-        data: { campaignId, workspaceId }
-      });
-    } catch (err) {
-      console.warn("[CampaignService] Inngest event trigger warning, using fallback queue:", err);
-    }
-    let enqueuedCount = 0;
-    for (const lead of leads || []) {
+    const fromEmail = emailConfig.fromEmail || process.env.SENDER_EMAIL || "outreach@transferlegacy.com";
+    const fromName = emailConfig.fromName || process.env.SENDER_NAME || "Transfer Legacy";
+    let sentCount = 0;
+    let failedCount = 0;
+    for (const lead of leads) {
       if (unsubscribedEmails.has(lead.email.toLowerCase().trim())) {
+        try {
+          await supabaseAdmin.from("activities").insert({
+            type: "EMAIL_SUPPRESSED",
+            description: `Campaign email to ${lead.email} suppressed (unsubscribed)`,
+            metadata: {
+              campaignId: campaign.id,
+              campaignName: campaign.name,
+              leadId: lead.id,
+              toEmail: lead.email,
+              provider: emailConfig.providerType,
+              reason: "unsubscribed"
+            },
+            lead_id: lead.id,
+            workspace_id: workspaceId
+          });
+        } catch {
+        }
         continue;
       }
       let html = template.body_html || "";
+      const leadCompany = lead.company_name || "your company";
       html = html.replace(/\{\{first_name\}\}/gi, lead.first_name || "there");
       html = html.replace(/\{\{last_name\}\}/gi, lead.last_name || "");
-      html = html.replace(/\{\{company\}\}/gi, lead.company_name || "your company");
+      html = html.replace(/\{\{company\}\}/gi, leadCompany);
       html = html.replace(/\{\{email\}\}/gi, lead.email);
       const unsubscribeLink = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(lead.email)}&workspaceId=${workspaceId}`;
       const unsubscribeFooter = `
@@ -1268,25 +1063,108 @@ var CampaignService = class {
         </p>
       `;
       html += unsubscribeFooter;
-      await QueueService.enqueue("SEND_EMAIL", {
-        campaignId: campaign.id,
-        workspaceId,
-        leadId: lead.id,
-        toEmail: lead.email,
-        fromEmail,
-        fromName,
-        subject: template.subject || "Outreach",
-        html
-      });
-      enqueuedCount++;
+      const recipientName = `${lead.first_name || ""} ${lead.last_name || ""}`.trim() || lead.email;
+      const subject = template.subject || campaign.name || "Outreach";
+      try {
+        const sendResult = await provider.send({
+          toEmail: lead.email,
+          fromEmail,
+          fromName,
+          subject,
+          html,
+          text: html.replace(/<[^>]*>?/gm, ""),
+          metadata: {
+            campaignId: campaign.id,
+            leadId: lead.id,
+            workspaceId,
+            providerType: emailConfig.providerType
+          }
+        });
+        if (sendResult.success) {
+          sentCount++;
+          await supabaseAdmin.from("activities").insert({
+            type: "EMAIL_SENT",
+            description: `Campaign "${campaign.name}" email sent to ${lead.email} via ${emailConfig.providerType}`,
+            metadata: {
+              campaignId: campaign.id,
+              campaignName: campaign.name,
+              leadId: lead.id,
+              toEmail: lead.email,
+              recipientName,
+              company: leadCompany,
+              provider: emailConfig.providerType,
+              messageId: sendResult.messageId,
+              subject
+            },
+            lead_id: lead.id,
+            workspace_id: workspaceId
+          });
+          await supabaseAdmin.from("leads").update({ status: "CONTACTED", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", lead.id);
+        } else {
+          failedCount++;
+          await supabaseAdmin.from("activities").insert({
+            type: "EMAIL_FAILED",
+            description: `Campaign email to ${lead.email} failed: ${sendResult.error || "Unknown error"}`,
+            metadata: {
+              campaignId: campaign.id,
+              campaignName: campaign.name,
+              leadId: lead.id,
+              toEmail: lead.email,
+              recipientName,
+              company: leadCompany,
+              error: sendResult.error,
+              provider: emailConfig.providerType,
+              subject
+            },
+            lead_id: lead.id,
+            workspace_id: workspaceId
+          });
+        }
+      } catch (sendErr) {
+        failedCount++;
+        console.error(`[CampaignService] Error dispatching to ${lead.email}:`, sendErr);
+        try {
+          await supabaseAdmin.from("activities").insert({
+            type: "EMAIL_FAILED",
+            description: `Campaign email to ${lead.email} error: ${sendErr.message}`,
+            metadata: {
+              campaignId: campaign.id,
+              campaignName: campaign.name,
+              leadId: lead.id,
+              toEmail: lead.email,
+              recipientName,
+              error: sendErr.message,
+              provider: emailConfig.providerType,
+              subject
+            },
+            lead_id: lead.id,
+            workspace_id: workspaceId
+          });
+        } catch {
+        }
+      }
     }
-    return { ...campaign, enqueuedCount };
+    const currentSent = (campaign.stats_sent || 0) + sentCount;
+    const finalStatus = sentCount > 0 ? "COMPLETED" : failedCount > 0 ? "FAILED" : "COMPLETED";
+    const { data: updatedCampaign } = await supabaseAdmin.from("campaigns").update({
+      status: finalStatus,
+      stats_sent: currentSent,
+      completed_at: (/* @__PURE__ */ new Date()).toISOString(),
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }).eq("id", campaignId).select("*, template:templates(id, name, subject)").single();
+    return {
+      ...updatedCampaign || campaign,
+      sentCount,
+      failedCount,
+      totalTargeted: leads.length,
+      provider: emailConfig.providerType
+    };
   }
   static async stopCampaign(campaignId, workspaceId) {
     const { data: campaign, error } = await supabaseAdmin.from("campaigns").update({
       status: "PAUSED",
       updated_at: (/* @__PURE__ */ new Date()).toISOString()
-    }).eq("id", campaignId).eq("workspace_id", workspaceId).select().single();
+    }).eq("id", campaignId).eq("workspace_id", workspaceId).select("*, template:templates(id, name, subject)").single();
     if (error) throw error;
     return campaign;
   }
@@ -1800,12 +1678,226 @@ var LeadService = class {
   }
 };
 
+// src/modules/queue/queue.service.ts
+init_supabaseAdmin();
+var QueueService = class {
+  static {
+    this.isProcessing = false;
+  }
+  /**
+   * Add a job to the queue using Supabase
+   */
+  static async enqueue(type, payload, priority = 0) {
+    const workspaceId = payload.workspaceId || payload.workspace_id || null;
+    const { data, error } = await supabaseAdmin.from("queue_jobs").insert([{
+      type,
+      payload,
+      priority,
+      status: "PENDING",
+      run_at: (/* @__PURE__ */ new Date()).toISOString(),
+      workspace_id: workspaceId
+    }]).select().single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+  /**
+   * Process pending jobs with Supabase
+   */
+  static async processNext() {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    try {
+      const { data: job, error: fetchError } = await supabaseAdmin.from("queue_jobs").select("*").eq("status", "PENDING").lte("run_at", (/* @__PURE__ */ new Date()).toISOString()).order("priority", { ascending: false }).order("created_at", { ascending: true }).limit(1).maybeSingle();
+      if (!job || fetchError) {
+        this.isProcessing = false;
+        return;
+      }
+      await this.processJob(job);
+    } catch (error) {
+      console.error("Queue Processing Error:", error);
+    } finally {
+      this.isProcessing = false;
+    }
+  }
+  /**
+   * Process a batch of pending jobs sequentially (used for cron)
+   */
+  static async processBatch(limit = 10) {
+    if (this.isProcessing) return 0;
+    this.isProcessing = true;
+    let processedCount = 0;
+    try {
+      const { data: jobs, error: fetchError } = await supabaseAdmin.from("queue_jobs").select("*").eq("status", "PENDING").lte("run_at", (/* @__PURE__ */ new Date()).toISOString()).order("priority", { ascending: false }).order("created_at", { ascending: true }).limit(limit);
+      if (fetchError || !jobs || jobs.length === 0) {
+        return 0;
+      }
+      for (const job of jobs) {
+        await this.processJob(job);
+        processedCount++;
+      }
+    } catch (error) {
+      console.error("Batch Queue Processing Error:", error);
+    } finally {
+      this.isProcessing = false;
+    }
+    return processedCount;
+  }
+  /**
+   * Core logic to process a single queue job
+   */
+  static async processJob(job) {
+    await supabaseAdmin.from("queue_jobs").update({ status: "PROCESSING", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", job.id);
+    let success = true;
+    let lastError = null;
+    const payload = job.payload;
+    if (job.type === "SEND_EMAIL") {
+      const toEmail = payload.toEmail || payload.to;
+      const fromEmail = payload.fromEmail || payload.from || process.env.SENDER_EMAIL || "outreach@transferlegacy.com";
+      const fromName = payload.fromName || process.env.SENDER_NAME || "Transfer Legacy";
+      const { data: campaign } = await supabaseAdmin.from("campaigns").select("status, stats_sent").eq("id", payload.campaignId).single();
+      if (!campaign || campaign.status !== "RUNNING") {
+        await supabaseAdmin.from("queue_jobs").update({
+          status: "COMPLETED",
+          last_error: "Campaign not running",
+          updated_at: (/* @__PURE__ */ new Date()).toISOString()
+        }).eq("id", job.id);
+        if (payload.campaignId) {
+          await this.checkCampaignCompletion(payload.campaignId);
+        }
+        return;
+      }
+      const { data: isUnsubscribed } = await supabaseAdmin.from("unsubscribes").select("id").eq("email", toEmail).eq("workspace_id", payload.workspaceId).maybeSingle();
+      if (isUnsubscribed) {
+        await supabaseAdmin.from("queue_jobs").update({
+          status: "COMPLETED",
+          last_error: "Suppressed: Recipient unsubscribed",
+          updated_at: (/* @__PURE__ */ new Date()).toISOString()
+        }).eq("id", job.id);
+        await supabaseAdmin.from("activities").insert({
+          type: "EMAIL_SUPPRESSED",
+          description: `Email to ${toEmail} suppressed (unsubscribed)`,
+          metadata: { campaignId: payload.campaignId, leadId: payload.leadId, reason: "unsubscribed" },
+          lead_id: payload.leadId,
+          workspace_id: payload.workspaceId
+        });
+        if (payload.campaignId) {
+          await this.checkCampaignCompletion(payload.campaignId);
+        }
+        return;
+      }
+      const emailConfig = await EmailProviderFactory.getProviderForWorkspace(payload.workspaceId);
+      const provider = emailConfig.provider;
+      const effectiveFromEmail = payload.fromEmail || payload.from || emailConfig.fromEmail;
+      const effectiveFromName = payload.fromName || emailConfig.fromName;
+      const limit = emailConfig.dailyLimit || 1e3;
+      const startOfDay = /* @__PURE__ */ new Date();
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const { count: sentCount } = await supabaseAdmin.from("activities").select("*", { count: "exact", head: true }).eq("workspace_id", payload.workspaceId).eq("type", "EMAIL_SENT").gte("created_at", startOfDay.toISOString());
+      if ((sentCount || 0) >= limit) {
+        const tomorrow = /* @__PURE__ */ new Date();
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+        tomorrow.setUTCHours(0, 0, 5, 0);
+        await supabaseAdmin.from("queue_jobs").update({
+          status: "PENDING",
+          run_at: tomorrow.toISOString(),
+          last_error: `Daily limit exceeded (${sentCount}/${limit}), postponed to tomorrow`,
+          updated_at: (/* @__PURE__ */ new Date()).toISOString()
+        }).eq("id", job.id);
+        return;
+      }
+      try {
+        const result = await provider.send({
+          toEmail,
+          fromEmail: effectiveFromEmail,
+          fromName: effectiveFromName,
+          subject: payload.subject || "Outreach",
+          html: payload.html,
+          metadata: {
+            jobId: job.id,
+            campaignId: payload.campaignId,
+            leadId: payload.leadId,
+            workspaceId: payload.workspaceId,
+            providerType: emailConfig.providerType
+          }
+        });
+        success = result.success;
+        lastError = result.error;
+        if (success) {
+          await supabaseAdmin.from("campaigns").update({ stats_sent: (campaign.stats_sent || 0) + 1 }).eq("id", payload.campaignId);
+          await supabaseAdmin.from("activities").insert({
+            type: "EMAIL_SENT",
+            description: `Campaign email sent to ${toEmail} via ${emailConfig.providerType}`,
+            metadata: {
+              campaignId: payload.campaignId,
+              leadId: payload.leadId,
+              provider: emailConfig.providerType,
+              messageId: result.messageId
+            },
+            lead_id: payload.leadId,
+            workspace_id: payload.workspaceId
+          });
+        }
+      } catch (err) {
+        success = false;
+        lastError = err.message;
+      }
+    }
+    if (success) {
+      await supabaseAdmin.from("queue_jobs").update({
+        status: "COMPLETED",
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("id", job.id);
+    } else {
+      const newRetryCount = (job.retry_count || 0) + 1;
+      const maxRetries = job.max_retries || 3;
+      const status = newRetryCount >= maxRetries ? "FAILED" : "PENDING";
+      await supabaseAdmin.from("queue_jobs").update({
+        status,
+        retry_count: newRetryCount,
+        last_error: lastError,
+        run_at: new Date(Date.now() + Math.pow(2, newRetryCount) * 5e3).toISOString(),
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("id", job.id);
+    }
+    if (payload.campaignId) {
+      await this.checkCampaignCompletion(payload.campaignId);
+    }
+  }
+  /**
+   * Helper to verify and update campaign status if all enqueued jobs are processed
+   */
+  static async checkCampaignCompletion(campaignId) {
+    const { count, error } = await supabaseAdmin.from("queue_jobs").select("*", { count: "exact", head: true }).eq("payload->>campaignId", campaignId).in("status", ["PENDING", "PROCESSING"]);
+    if (!error && count === 0) {
+      await supabaseAdmin.from("campaigns").update({
+        status: "COMPLETED",
+        completed_at: (/* @__PURE__ */ new Date()).toISOString(),
+        updated_at: (/* @__PURE__ */ new Date()).toISOString()
+      }).eq("id", campaignId);
+    }
+  }
+  /**
+   * Start the worker loop
+   */
+  static startWorker() {
+    setInterval(async () => {
+      await this.processNext();
+    }, 15e3);
+  }
+};
+
 // src/serverApp.ts
 init_supabaseAdmin();
 import { serve } from "inngest/express";
 
+// src/lib/inngest.client.ts
+import { Inngest } from "inngest";
+var inngest = new Inngest({
+  id: "tl-connect",
+  name: "TL Connect Outreach Engine"
+});
+
 // src/modules/inngest/email.workflow.ts
-init_inngest_client();
 init_supabaseAdmin();
 var dispatchEmailWorkflow = inngest.createFunction(
   {
@@ -1904,7 +1996,6 @@ var dispatchEmailWorkflow = inngest.createFunction(
 );
 
 // src/modules/inngest/campaign.workflow.ts
-init_inngest_client();
 init_supabaseAdmin();
 var runCampaignWorkflow = inngest.createFunction(
   {
@@ -1961,7 +2052,6 @@ var runCampaignWorkflow = inngest.createFunction(
 );
 
 // src/modules/inngest/index.ts
-init_inngest_client();
 var inngestFunctions = [dispatchEmailWorkflow, runCampaignWorkflow];
 
 // src/serverApp.ts

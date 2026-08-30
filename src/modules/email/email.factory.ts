@@ -49,16 +49,22 @@ export class EmailProviderFactory {
   /**
    * Fetch active provider configuration for a workspace from the Database
    */
-  static async getProviderForWorkspace(workspaceId: string): Promise<WorkspaceEmailConfig> {
+  static async getProviderForWorkspace(workspaceId: string, providerId?: string): Promise<WorkspaceEmailConfig> {
     try {
       if (workspaceId) {
-        const { data: providers, error } = await supabaseAdmin
+        let query = supabaseAdmin
           .from('email_providers')
           .select('*')
           .eq('workspace_id', workspaceId)
-          .eq('is_active', true)
-          .order('is_default', { ascending: false })
-          .order('created_at', { ascending: false });
+          .eq('is_active', true);
+
+        if (providerId) {
+          query = query.eq('id', providerId);
+        } else {
+          query = query.order('is_default', { ascending: false }).order('created_at', { ascending: false });
+        }
+
+        const { data: providers, error } = await query;
 
         if (!error && providers && providers.length > 0) {
           const config = providers[0];
