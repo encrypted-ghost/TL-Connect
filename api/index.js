@@ -94,8 +94,30 @@ var init_activity_service = __esm({
         try {
           const { data, error } = await supabaseAdmin.from("activities").select(`
           *,
-          lead:leads(first_name, last_name, email, company_name, category)
+          lead:leads(id, first_name, last_name, email)
         `).eq("workspace_id", workspaceId).in("type", [
+            "EMAIL_SENT",
+            "EMAIL_OPENED",
+            "EMAIL_CLICKED",
+            "EMAIL_BOUNCED",
+            "EMAIL_FAILED",
+            "EMAIL_SUPPRESSED",
+            "EMAIL_SPAM",
+            "EMAIL_BLOCKED",
+            "EMAIL_UNSUBSCRIBED",
+            "REPLY"
+          ]).order("created_at", { ascending: false }).limit(limit);
+          if (!error && data) {
+            return data;
+          }
+          if (error) {
+            console.warn("[ActivityService] Joined query had error, falling back to simple select:", error.message);
+          }
+        } catch (err) {
+          console.warn("[ActivityService] Joined email logs query failed:", err);
+        }
+        try {
+          const { data, error } = await supabaseAdmin.from("activities").select("*").eq("workspace_id", workspaceId).in("type", [
             "EMAIL_SENT",
             "EMAIL_OPENED",
             "EMAIL_CLICKED",
@@ -110,7 +132,7 @@ var init_activity_service = __esm({
           if (error) throw error;
           return data || [];
         } catch (err) {
-          console.error("Error fetching email logs:", err);
+          console.error("Error fetching fallback email logs:", err);
           return [];
         }
       }
@@ -1659,30 +1681,55 @@ var LeadService = class {
         provider: emailConfig.providerType
       }
     });
+    const recipientName = `${lead.first_name || ""} ${lead.last_name || ""}`.trim() || lead.email;
     if (!sendResult.success) {
+      try {
+        await supabaseAdmin.from("activities").insert({
+          type: "EMAIL_FAILED",
+          description: `Direct email to ${lead.email} failed: ${sendResult.error || "Unknown error"}`,
+          metadata: {
+            leadId: lead.id,
+            toEmail: lead.email,
+            recipientName,
+            company: leadCompany,
+            error: sendResult.error,
+            provider: emailConfig.providerType,
+            subject: options.subject,
+            direct: true
+          },
+          lead_id: lead.id,
+          workspace_id: workspaceId
+        });
+      } catch (logErr) {
+        console.error("[LeadService] Failed to record failure activity log:", logErr);
+      }
+      throw new Error(sendResult.error || "Failed to dispatch email");
+    }
+    try {
       await supabaseAdmin.from("activities").insert({
-        type: "EMAIL_FAILED",
-        description: `Direct email to ${lead.email} failed: ${sendResult.error || "Unknown error"}`,
-        metadata: { leadId: lead.id, error: sendResult.error, provider: emailConfig.providerType, subject: options.subject },
+        type: "EMAIL_SENT",
+        description: `Direct email sent to ${lead.email} via ${emailConfig.providerType}`,
+        metadata: {
+          leadId: lead.id,
+          toEmail: lead.email,
+          recipientName,
+          company: leadCompany,
+          provider: emailConfig.providerType,
+          messageId: sendResult.messageId,
+          subject: options.subject,
+          direct: true
+        },
         lead_id: lead.id,
         workspace_id: workspaceId
       });
-      throw new Error(sendResult.error || "Failed to dispatch email");
+    } catch (logErr) {
+      console.error("[LeadService] Failed to record success activity log:", logErr);
     }
-    await supabaseAdmin.from("activities").insert({
-      type: "EMAIL_SENT",
-      description: `Direct email sent to ${lead.email} via ${emailConfig.providerType}`,
-      metadata: {
-        leadId: lead.id,
-        provider: emailConfig.providerType,
-        messageId: sendResult.messageId,
-        subject: options.subject,
-        direct: true
-      },
-      lead_id: lead.id,
-      workspace_id: workspaceId
-    });
-    await supabaseAdmin.from("leads").update({ status: "CONTACTED", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", lead.id);
+    try {
+      await supabaseAdmin.from("leads").update({ status: "CONTACTED", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", lead.id);
+    } catch (leadUpdateErr) {
+      console.warn("[LeadService] Status update warning on lead:", leadUpdateErr);
+    }
     return { success: true, messageId: sendResult.messageId, provider: emailConfig.providerType };
   }
 };

@@ -325,35 +325,61 @@ export class LeadService {
       }
     });
 
+    const recipientName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || lead.email;
+
     if (!sendResult.success) {
-      await supabaseAdmin.from('activities').insert({
-        type: 'EMAIL_FAILED',
-        description: `Direct email to ${lead.email} failed: ${sendResult.error || 'Unknown error'}`,
-        metadata: { leadId: lead.id, error: sendResult.error, provider: emailConfig.providerType, subject: options.subject },
-        lead_id: lead.id,
-        workspace_id: workspaceId
-      });
+      try {
+        await supabaseAdmin.from('activities').insert({
+          type: 'EMAIL_FAILED',
+          description: `Direct email to ${lead.email} failed: ${sendResult.error || 'Unknown error'}`,
+          metadata: { 
+            leadId: lead.id, 
+            toEmail: lead.email,
+            recipientName,
+            company: leadCompany,
+            error: sendResult.error, 
+            provider: emailConfig.providerType, 
+            subject: options.subject,
+            direct: true
+          },
+          lead_id: lead.id,
+          workspace_id: workspaceId
+        });
+      } catch (logErr) {
+        console.error('[LeadService] Failed to record failure activity log:', logErr);
+      }
       throw new Error(sendResult.error || 'Failed to dispatch email');
     }
 
-    await supabaseAdmin.from('activities').insert({
-      type: 'EMAIL_SENT',
-      description: `Direct email sent to ${lead.email} via ${emailConfig.providerType}`,
-      metadata: { 
-        leadId: lead.id, 
-        provider: emailConfig.providerType, 
-        messageId: sendResult.messageId, 
-        subject: options.subject,
-        direct: true
-      },
-      lead_id: lead.id,
-      workspace_id: workspaceId
-    });
+    try {
+      await supabaseAdmin.from('activities').insert({
+        type: 'EMAIL_SENT',
+        description: `Direct email sent to ${lead.email} via ${emailConfig.providerType}`,
+        metadata: { 
+          leadId: lead.id, 
+          toEmail: lead.email,
+          recipientName,
+          company: leadCompany,
+          provider: emailConfig.providerType, 
+          messageId: sendResult.messageId, 
+          subject: options.subject,
+          direct: true
+        },
+        lead_id: lead.id,
+        workspace_id: workspaceId
+      });
+    } catch (logErr) {
+      console.error('[LeadService] Failed to record success activity log:', logErr);
+    }
 
-    await supabaseAdmin
-      .from('leads')
-      .update({ status: 'CONTACTED', updated_at: new Date().toISOString() })
-      .eq('id', lead.id);
+    try {
+      await supabaseAdmin
+        .from('leads')
+        .update({ status: 'CONTACTED', updated_at: new Date().toISOString() })
+        .eq('id', lead.id);
+    } catch (leadUpdateErr) {
+      console.warn('[LeadService] Status update warning on lead:', leadUpdateErr);
+    }
 
     return { success: true, messageId: sendResult.messageId, provider: emailConfig.providerType };
   }

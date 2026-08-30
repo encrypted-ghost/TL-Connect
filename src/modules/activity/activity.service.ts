@@ -44,13 +44,45 @@ export class ActivityService {
   }
 
   static async getEmailLogs(workspaceId: string, limit = 100) {
+    // 1. Try fetching with joined lead
     try {
       const { data, error } = await supabaseAdmin
         .from('activities')
         .select(`
           *,
-          lead:leads(first_name, last_name, email, company_name, category)
+          lead:leads(id, first_name, last_name, email)
         `)
+        .eq('workspace_id', workspaceId)
+        .in('type', [
+          'EMAIL_SENT', 
+          'EMAIL_OPENED', 
+          'EMAIL_CLICKED', 
+          'EMAIL_BOUNCED', 
+          'EMAIL_FAILED', 
+          'EMAIL_SUPPRESSED', 
+          'EMAIL_SPAM', 
+          'EMAIL_BLOCKED',
+          'EMAIL_UNSUBSCRIBED',
+          'REPLY'
+        ])
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (!error && data) {
+        return data;
+      }
+      if (error) {
+        console.warn('[ActivityService] Joined query had error, falling back to simple select:', error.message);
+      }
+    } catch (err) {
+      console.warn('[ActivityService] Joined email logs query failed:', err);
+    }
+
+    // 2. Safe standalone fallback
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('activities')
+        .select('*')
         .eq('workspace_id', workspaceId)
         .in('type', [
           'EMAIL_SENT', 
@@ -70,7 +102,7 @@ export class ActivityService {
       if (error) throw error;
       return data || [];
     } catch (err) {
-      console.error('Error fetching email logs:', err);
+      console.error('Error fetching fallback email logs:', err);
       return [];
     }
   }
