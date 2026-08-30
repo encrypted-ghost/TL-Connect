@@ -3,29 +3,34 @@ import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
 import { apiClient } from '@/src/lib/apiClient';
-import { Calendar, Clock, Filter, Server, Users, Sparkles, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, Filter, Server, Users, Sparkles, AlertCircle, Save } from 'lucide-react';
 
 interface CampaignFormProps {
+  initialData?: any;
   onSubmit: (data: any) => void;
   onCancel: () => void;
   isSubmitting?: boolean;
 }
 
-export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormProps) {
+export function CampaignForm({ initialData, onSubmit, onCancel, isSubmitting }: CampaignFormProps) {
+  const isEditing = !!initialData?.id;
+
   const [formData, setFormData] = useState({
-    name: '',
-    templateId: '',
-    targetCategory: 'ALL',
-    targetStatus: 'ALL',
-    providerId: '',
-    scheduledAtDate: '',
-    scheduledAtTime: '',
-    isScheduled: false
+    name: initialData?.name || '',
+    templateId: initialData?.template_id || initialData?.templateId || '',
+    targetCategory: initialData?.target_category || initialData?.targetCategory || 'ALL',
+    targetStatus: initialData?.target_status || initialData?.targetStatus || 'ALL',
+    providerId: initialData?.provider_id || initialData?.providerId || '',
+    scheduledAtDate: initialData?.scheduled_at ? new Date(initialData.scheduled_at).toISOString().split('T')[0] : '',
+    scheduledAtTime: initialData?.scheduled_at ? new Date(initialData.scheduled_at).toTimeString().slice(0, 5) : '',
+    isScheduled: !!initialData?.scheduled_at
   });
 
   const [templates, setTemplates] = useState<any[]>([]);
   const [providers, setProviders] = useState<any[]>([]);
-  const [leadCount, setLeadCount] = useState<number | null>(null);
+  const [matchingLeadsCount, setMatchingLeadsCount] = useState<number | null>(null);
+  const [totalLeadsCount, setTotalLeadsCount] = useState<number | null>(null);
+  const [allLeads, setAllLeads] = useState<any[]>([]);
   const [loadingMetadata, setLoadingMetadata] = useState(true);
 
   useEffect(() => {
@@ -40,9 +45,9 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
         setTemplates(templatesRes.data || []);
         setProviders(providersRes.data || []);
         
-        // Count matching leads
-        const allLeads = leadsRes.data || [];
-        setLeadCount(allLeads.length);
+        const leads = leadsRes.data || [];
+        setAllLeads(leads);
+        setTotalLeadsCount(leads.length);
       } catch (err) {
         console.error('Failed to load campaign metadata:', err);
       } finally {
@@ -51,6 +56,17 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
     }
     loadMetadata();
   }, []);
+
+  // Recalculate matching leads when target filters change
+  useEffect(() => {
+    if (!allLeads.length) return;
+    const matching = allLeads.filter(l => {
+      const matchCat = formData.targetCategory === 'ALL' || (l.category || 'Outbound') === formData.targetCategory;
+      const matchStatus = formData.targetStatus === 'ALL' || l.status === formData.targetStatus;
+      return matchCat && matchStatus;
+    });
+    setMatchingLeadsCount(matching.length);
+  }, [allLeads, formData.targetCategory, formData.targetStatus]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,20 +90,20 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Campaign Name */}
       <div className="space-y-2">
-        <Label htmlFor="name">Campaign Name *</Label>
+        <Label htmlFor="name" className="text-xs text-neutral-300 font-bold uppercase tracking-wider">Campaign Name *</Label>
         <Input 
           id="name" 
           value={formData.name} 
           onChange={e => setFormData({ ...formData, name: e.target.value })}
           placeholder="e.g. Q4 Executive Outreach - Enterprise"
-          className="bg-neutral-900 border-neutral-800"
+          className="bg-neutral-900 border-neutral-800 text-white"
           required
         />
       </div>
 
       {/* Blueprint Template Selection */}
       <div className="space-y-2">
-        <Label htmlFor="template" className="flex items-center gap-1.5">
+        <Label htmlFor="template" className="flex items-center gap-1.5 text-xs text-neutral-300 font-bold uppercase tracking-wider">
           <Sparkles size={14} className="text-indigo-400" /> Email Blueprint Template *
         </Label>
         <select
@@ -111,9 +127,9 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
             <Filter size={14} className="text-indigo-400" />
             <span className="text-xs font-bold uppercase tracking-wider text-neutral-300">Audience Segmentation & Control</span>
           </div>
-          {leadCount !== null && (
-            <span className="text-[11px] text-neutral-400">
-              <span className="text-emerald-400 font-bold">{leadCount}</span> total leads in CRM
+          {matchingLeadsCount !== null && (
+            <span className="text-[11px] text-neutral-400 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">
+              <span className="text-emerald-400 font-bold">{matchingLeadsCount}</span> of {totalLeadsCount} leads targeted
             </span>
           )}
         </div>
@@ -196,7 +212,7 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
                 type="date"
                 value={formData.scheduledAtDate}
                 onChange={e => setFormData({ ...formData, scheduledAtDate: e.target.value })}
-                className="bg-neutral-900 border-neutral-800 text-xs"
+                className="bg-neutral-900 border-neutral-800 text-xs text-white"
                 required={formData.isScheduled}
               />
             </div>
@@ -209,7 +225,7 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
                 type="time"
                 value={formData.scheduledAtTime}
                 onChange={e => setFormData({ ...formData, scheduledAtTime: e.target.value })}
-                className="bg-neutral-900 border-neutral-800 text-xs"
+                className="bg-neutral-900 border-neutral-800 text-xs text-white"
                 required={formData.isScheduled}
               />
             </div>
@@ -217,7 +233,7 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
         )}
       </div>
 
-      {/* Submit */}
+      {/* Submit Buttons */}
       <div className="flex justify-end gap-3 pt-4 border-t border-neutral-800">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
           Cancel
@@ -227,7 +243,7 @@ export function CampaignForm({ onSubmit, onCancel, isSubmitting }: CampaignFormP
           disabled={isSubmitting || !formData.name || !formData.templateId || (formData.isScheduled && (!formData.scheduledAtDate || !formData.scheduledAtTime))}
           variant="white"
         >
-          {isSubmitting ? 'Creating Campaign...' : 'Create Outreach Campaign'}
+          {isSubmitting ? (isEditing ? 'Saving...' : 'Creating...') : (isEditing ? 'Save Campaign Changes' : 'Create Outreach Campaign')}
         </Button>
       </div>
     </form>

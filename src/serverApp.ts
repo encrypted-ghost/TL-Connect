@@ -557,6 +557,20 @@ export async function createApp() {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  api.put('/campaigns/:id', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
+    try {
+      const data = await CampaignService.updateCampaign(req.params.id, req.user!.workspaceId, req.body);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message || 'Failed to update campaign' }); }
+  });
+
+  api.patch('/campaigns/:id', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
+    try {
+      const data = await CampaignService.updateCampaign(req.params.id, req.user!.workspaceId, req.body);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message || 'Failed to update campaign' }); }
+  });
+
   // Templates
   api.get('/templates', requirePermission(PERMISSIONS.CAMPAIGNS_VIEW), async (req, res) => {
     try {

@@ -127,28 +127,22 @@ export default function App() {
         "fixed inset-y-0 left-0 z-40 w-64 transform bg-[#09090b] border-r border-[#27272a] flex flex-col transition-transform duration-300 md:relative md:translate-x-0 h-full",
         mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="px-6 py-8 md:py-10 flex flex-col items-start gap-4">
-          <div className="flex items-center justify-between w-full md:hidden mb-2">
-            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-500">Menu</span>
-            <button onClick={() => setMobileMenuOpen(false)} className="text-neutral-500 hover:text-white p-1">
-              <X size={16} />
-            </button>
-          </div>
-          <div className="relative group cursor-pointer" onClick={() => setCurrentView('dashboard')}>
-            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl blur opacity-20 group-hover:opacity-60 transition duration-1000"></div>
-            <div className="relative w-12 h-12 rounded-xl flex items-center justify-center shadow-lg transition-colors overflow-hidden">
-              <img src="/tl-connect-logo.png" alt="Logo" className="w-full h-full object-contain" />
+        <div className="px-5 py-4 md:py-5 flex items-center justify-between border-b border-[#1c1c20]">
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setCurrentView('dashboard')}>
+            <div className="relative w-8 h-8 rounded-lg overflow-hidden shrink-0 border border-indigo-500/30 bg-neutral-900 flex items-center justify-center">
+              <img src="/tl-connect-logo.png" alt="Logo" className="w-full h-full object-contain p-0.5" />
+            </div>
+            <div className="flex flex-col">
+              <span className="font-bold tracking-tight text-sm text-white flex items-center gap-1.5">
+                TL <span className="text-indigo-400">Connect</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+              </span>
+              <span className="text-[8px] uppercase tracking-[0.2em] text-neutral-500 font-bold">Enterprise CRM</span>
             </div>
           </div>
-          <div className="flex flex-col space-y-0.5">
-            <span className="font-bold tracking-tight text-xl text-white">
-              TL <span className="text-indigo-400">Connect</span>
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] uppercase tracking-[0.2em] text-neutral-600 font-black">Enterprise CRM</span>
-              <div className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse"></div>
-            </div>
-          </div>
+          <button onClick={() => setMobileMenuOpen(false)} className="text-neutral-500 hover:text-white p-1 md:hidden">
+            <X size={16} />
+          </button>
         </div>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto scrollbar-none">
@@ -213,13 +207,30 @@ export default function App() {
         </nav>
 
         <div className="p-4 border-t border-[#27272a] bg-neutral-950/50">
-          <div className="bg-[#111114] p-4 rounded-xl border border-[#27272a] shadow-inner">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[9px] text-neutral-500 font-black uppercase tracking-widest">Workspace Rep</span>
-              <span className="text-emerald-500 text-[10px] font-black">94.2%</span>
+          <div className="bg-[#111114] p-3.5 rounded-xl border border-[#27272a] shadow-inner space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] text-neutral-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                Delivery Health
+              </span>
+              <span className="text-emerald-400 text-xs font-bold font-mono">
+                {stats?.deliveryRate !== undefined ? `${stats.deliveryRate}%` : '100%'}
+              </span>
             </div>
-            <div className="w-full bg-[#09090b] h-1.5 rounded-full overflow-hidden border border-neutral-900">
-              <div className="bg-gradient-to-r from-red-500 via-amber-500 to-emerald-500 h-full w-[94%]" style={{ transition: 'width 2s ease-in-out' }}></div>
+            
+            <div className="grid grid-cols-3 gap-1 pt-1 border-t border-[#1e1e24] text-center">
+              <div>
+                <div className="text-[8px] uppercase text-neutral-500 font-bold">Sent</div>
+                <div className="text-[11px] font-bold text-white font-mono">{stats?.totalSent || 0}</div>
+              </div>
+              <div>
+                <div className="text-[8px] uppercase text-neutral-500 font-bold">Opens</div>
+                <div className="text-[11px] font-bold text-blue-400 font-mono">{stats?.totalOpened || 0}</div>
+              </div>
+              <div>
+                <div className="text-[8px] uppercase text-neutral-500 font-bold">Failed</div>
+                <div className="text-[11px] font-bold text-red-400 font-mono">{(stats?.totalFailed || 0) + (stats?.totalBounced || 0)}</div>
+              </div>
             </div>
           </div>
           <div className="mt-6 flex items-center justify-between px-2">
@@ -345,14 +356,20 @@ function DashboardView({ stats, onAction }: { stats: any, onAction: (action: str
   
   const leadsCount = stats?.leadsCount || 0;
   const campaignsCount = stats?.campaignsCount || 0;
-  const replyRate = stats?.replyRate || 0;
   const totalSent = stats?.totalSent || 0;
+  const totalOpened = stats?.totalOpened || 0;
+  const totalReplied = stats?.totalReplied || 0;
+  const totalFailed = (stats?.totalFailed || 0) + (stats?.totalBounced || 0);
+  const openRate = stats?.openRate || 0;
+  const replyRate = stats?.replyRate || 0;
+  const bounceRate = stats?.bounceRate || 0;
+  const deliveryRate = stats?.deliveryRate ?? 100;
 
   useEffect(() => {
     const fetchActivity = async () => {
       try {
         const res = await apiClient.get('/activity');
-        setActivities(res.data);
+        setActivities(res.data || []);
       } catch (err) {
         console.error('Failed to fetch activity');
       } finally {
@@ -364,60 +381,198 @@ function DashboardView({ stats, onAction }: { stats: any, onAction: (action: str
 
   return (
     <div className="space-y-8 pb-12">
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Overview</h1>
-          <p className="text-neutral-500 text-sm mt-1">Real-time performance metrics across your workspace.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
+            <LayoutDashboard className="text-indigo-400" size={28} />
+            Command Center
+          </h1>
+          <p className="text-neutral-400 text-sm mt-1">Live telemetry, outreach transmission rates, and engagement funnel.</p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={() => toast.success('Report generation started...')}>Download Report</Button>
-          <Button variant="white" size="sm" className="flex-1 sm:flex-none" onClick={() => onAction('leads')}>+ New Lead</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => onAction('logs')}>
+            <ActivityIcon size={14} className="mr-1.5" /> Dispatch Logs
+          </Button>
+          <Button variant="white" size="sm" onClick={() => onAction('campaigns')}>
+            <Send size={14} className="mr-1.5" /> New Outreach
+          </Button>
         </div>
       </div>
 
+      {/* 4 Core Performance Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Active Campaigns" value={campaignsCount.toString()} trend="Total campaigns in workspace" />
-        <StatCard label="Leads Available" value={leadsCount.toLocaleString()} trend="Total CRM leads" />
-        <StatCard label="Reply Rate" value={replyRate.toFixed(1) + "%"} trend={`${totalSent} total emails sent`} />
-        <StatCard label="Domains" value="0" trend="Setup required" status="warning" />
+        <div className="p-5 rounded-xl bg-[#111114] border border-[#27272a] shadow-sm flex flex-col justify-between">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">Total Dispatched</span>
+            <span className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <Send size={14} />
+            </span>
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-bold text-white font-mono">{totalSent.toLocaleString()}</div>
+            <div className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1 font-medium">
+              <span>{deliveryRate}% Delivery Rate</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-xl bg-[#111114] border border-[#27272a] shadow-sm flex flex-col justify-between">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">Opens & Reads</span>
+            <span className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              <CheckCircle size={14} />
+            </span>
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-bold text-white font-mono">{totalOpened.toLocaleString()}</div>
+            <div className="text-[11px] text-blue-400 mt-1 flex items-center gap-1 font-medium">
+              <span>{openRate}% Open Rate</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-xl bg-[#111114] border border-[#27272a] shadow-sm flex flex-col justify-between">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">Replies & Signals</span>
+            <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <Mail size={14} />
+            </span>
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-bold text-white font-mono">{totalReplied.toLocaleString()}</div>
+            <div className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1 font-medium">
+              <span>{replyRate}% Signal Rate</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-xl bg-[#111114] border border-[#27272a] shadow-sm flex flex-col justify-between">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">Bounces & Failures</span>
+            <span className="p-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20">
+              <AlertCircle size={14} />
+            </span>
+          </div>
+          <div className="mt-3">
+            <div className="text-2xl font-bold text-white font-mono">{totalFailed.toLocaleString()}</div>
+            <div className="text-[11px] text-red-400 mt-1 flex items-center gap-1 font-medium">
+              <span>{bounceRate}% Bounce Rate</span>
+            </div>
+          </div>
+        </div>
       </div>
 
+      {/* Funnel & Live Activity Feed Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 space-y-6">
-          <EmptyState 
-            icon={<Send size={40} className="text-neutral-500" />}
-            title="No Active Campaigns"
-            description="Start reaching out to your leads with personalized email campaigns."
-            action={<Button variant="white" onClick={() => onAction('campaigns')}>Create First Campaign</Button>}
-          />
+        {/* Left 7 Columns: Conversion Funnel & Pipeline Overview */}
+        <div className="lg:col-span-7 bg-[#111114] border border-[#27272a] rounded-xl p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-300 flex items-center gap-2">
+              <Zap size={14} className="text-indigo-400" /> Outreach Conversion Funnel
+            </h3>
+            <span className="text-[11px] text-neutral-500 font-mono">{leadsCount} total CRM prospects</span>
+          </div>
+
+          <div className="space-y-4 pt-2">
+            {/* Step 1: Total Leads */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-neutral-300">1. Total Prospect Matrix</span>
+                <span className="font-mono text-neutral-400">{leadsCount} Leads</span>
+              </div>
+              <div className="w-full bg-[#18181b] h-2 rounded-full overflow-hidden">
+                <div className="bg-indigo-600 h-full rounded-full w-full"></div>
+              </div>
+            </div>
+
+            {/* Step 2: Dispatched */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-neutral-300">2. Dispatched & Delivered</span>
+                <span className="font-mono text-emerald-400">{totalSent} Sent</span>
+              </div>
+              <div className="w-full bg-[#18181b] h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-emerald-500 h-full rounded-full transition-all duration-1000" 
+                  style={{ width: `${leadsCount > 0 ? Math.min(100, (totalSent / leadsCount) * 100) : 0}%` }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Step 3: Opens */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-neutral-300">3. Opened & Engaged</span>
+                <span className="font-mono text-blue-400">{totalOpened} Opens ({openRate}%)</span>
+              </div>
+              <div className="w-full bg-[#18181b] h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-blue-500 h-full rounded-full transition-all duration-1000" 
+                  style={{ width: `${totalSent > 0 ? Math.min(100, (totalOpened / totalSent) * 100) : 0}%` }}
+                ></div>
+              </div>
+            </div>
+
+            {/* Step 4: Replies */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs font-medium">
+                <span className="text-neutral-300">4. Responded / Interested</span>
+                <span className="font-mono text-purple-400">{totalReplied} Replies ({replyRate}%)</span>
+              </div>
+              <div className="w-full bg-[#18181b] h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-purple-500 h-full rounded-full transition-all duration-1000" 
+                  style={{ width: `${totalSent > 0 ? Math.min(100, (totalReplied / totalSent) * 100) : 0}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="lg:col-span-4 bg-[#09090b] border border-[#27272a] rounded-xl p-6">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-500 mb-6 flex items-center gap-2">
-            <ActivityIcon size={14} /> Recent Activity
-          </h3>
-          <div className="space-y-4">
-            {loading ? (
-              <div className="flex justify-center py-8">
-                <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-            ) : activities.length > 0 ? (
-              activities.map((act) => (
-                <div key={act.id} className="flex gap-3 text-xs">
-                  <div className="shrink-0 w-6 h-6 rounded bg-neutral-800 flex items-center justify-center text-neutral-400">
-                    <ActivityIcon size={12} />
-                  </div>
-                  <div>
-                    <p className="text-neutral-200 leading-normal">{act.description}</p>
-                    <p className="text-neutral-500 mt-0.5 text-[10px]">{new Date(act.created_at).toLocaleTimeString()}</p>
-                  </div>
+
+        {/* Right 5 Columns: Live Transmission & Activity Stream */}
+        <div className="lg:col-span-5 bg-[#111114] border border-[#27272a] rounded-xl p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-neutral-300 flex items-center gap-2">
+                <ActivityIcon size={14} className="text-indigo-400" /> Real-Time Activity
+              </h3>
+              <button onClick={() => onAction('logs')} className="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold">
+                View All
+              </button>
+            </div>
+            
+            <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1 scrollbar-none">
+              {loading ? (
+                <div className="flex justify-center py-10">
+                  <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
-              ))
-            ) : (
-              <div className="flex flex-col items-center justify-center h-48 text-center px-4">
-                <ActivityIcon size={24} className="text-neutral-700 mb-3" />
-                <p className="text-xs text-neutral-500">Activity logs will appear here as your workspace grows.</p>
-              </div>
-            )}
+              ) : activities.length > 0 ? (
+                activities.slice(0, 5).map((act) => (
+                  <div key={act.id} className="flex gap-2.5 text-xs p-2 rounded-lg bg-[#18181b]/60 border border-[#27272a]/60">
+                    <div className="shrink-0 w-6 h-6 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center text-[10px] mt-0.5">
+                      <ActivityIcon size={12} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-neutral-200 leading-tight truncate">{act.description}</p>
+                      <p className="text-neutral-500 mt-1 text-[10px] font-mono">{new Date(act.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+                  <ActivityIcon size={24} className="text-neutral-700 mb-2" />
+                  <p className="text-xs text-neutral-500">Activity logs will stream live as campaigns dispatch.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-[#1e1e24] mt-4 flex items-center justify-between">
+            <span className="text-[11px] text-neutral-400">Manage Campaigns:</span>
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => onAction('campaigns')}>
+              View All Campaigns ({campaignsCount})
+            </Button>
           </div>
         </div>
       </div>
@@ -625,6 +780,16 @@ function CampaignsView() {
     }
   };
 
+  const handleUpdate = async (id: string, data: any) => {
+    try {
+      await apiClient.patch(`/campaigns/${id}`, data);
+      toast.success('Campaign updated successfully');
+      fetchCampaigns();
+    } catch (err) {
+      toast.error('Failed to update campaign');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -638,10 +803,10 @@ function CampaignsView() {
               <Plus size={14} /> Create Campaign
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px] bg-neutral-950 border-neutral-800 max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-[550px] bg-[#09090b] border-[#27272a] text-white max-h-[90vh] overflow-y-auto">
             <DialogHeader className="px-1">
               <DialogTitle>Create New Campaign</DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="text-xs text-neutral-400">
                 Define your outreach campaign and choose when to start.
               </DialogDescription>
             </DialogHeader>
@@ -663,6 +828,7 @@ function CampaignsView() {
           onStart={handleStart}
           onStop={handleStop}
           onDelete={handleDelete}
+          onUpdate={handleUpdate}
         />
       ) : (
         <EmptyState 

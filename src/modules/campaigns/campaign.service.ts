@@ -33,6 +33,38 @@ export class CampaignService {
     return campaign;
   }
 
+  static async updateCampaign(campaignId: string, workspaceId: string, data: any) {
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.templateId !== undefined || data.template_id !== undefined) {
+      updateData.template_id = data.templateId ?? data.template_id;
+    }
+    if (data.targetCategory !== undefined || data.target_category !== undefined) {
+      updateData.target_category = data.targetCategory ?? data.target_category;
+    }
+    if (data.targetStatus !== undefined || data.target_status !== undefined) {
+      updateData.target_status = data.targetStatus ?? data.target_status;
+    }
+    if (data.providerId !== undefined || data.provider_id !== undefined) {
+      updateData.provider_id = data.providerId ?? data.provider_id;
+    }
+    if (data.status !== undefined) updateData.status = data.status;
+
+    const { data: campaign, error } = await supabaseAdmin
+      .from('campaigns')
+      .update(updateData)
+      .eq('id', campaignId)
+      .eq('workspace_id', workspaceId)
+      .select('*, template:templates(name, subject)')
+      .single();
+
+    if (error) throw error;
+    return campaign;
+  }
+
   static async startCampaign(campaignId: string, workspaceId: string) {
     // 1. Get Campaign and Template details
     const { data: campaign, error: cError } = await supabaseAdmin

@@ -300,45 +300,89 @@ var AnalyticsService = class {
     this.cache = {};
   }
   static {
-    this.CACHE_TTL = 3e4;
+    this.CACHE_TTL = 1e4;
   }
-  // 30 seconds
+  // 10 seconds
   static async getWorkspaceMetrics(workspaceId) {
     const now = Date.now();
     const cached = this.cache[workspaceId];
     if (cached && now - cached.timestamp < this.CACHE_TTL) {
       return cached.data;
     }
-    const [leadsRes, campaignsRes, statsRes] = await Promise.all([
-      supabaseAdmin.from("leads").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId),
-      supabaseAdmin.from("campaigns").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId),
-      supabaseAdmin.rpc("get_workspace_stats", { p_workspace_id: workspaceId })
-    ]);
-    let stats = statsRes.data;
-    if (statsRes.error || !stats) {
-      const { data } = await supabaseAdmin.from("campaigns").select("stats_sent, stats_opened, stats_replied, stats_bounced").eq("workspace_id", workspaceId);
-      stats = (data || []).reduce((acc, curr) => ({
-        statsSent: acc.statsSent + (curr.stats_sent || 0),
-        statsOpened: acc.statsOpened + (curr.stats_opened || 0),
-        statsReplied: acc.statsReplied + (curr.stats_replied || 0),
-        statsBounced: acc.statsBounced + (curr.stats_bounced || 0)
-      }), { statsSent: 0, statsOpened: 0, statsReplied: 0, statsBounced: 0 });
+    try {
+      const [leadsRes, campaignsRes, activitiesRes] = await Promise.all([
+        supabaseAdmin.from("leads").select("status", { count: "exact" }).eq("workspace_id", workspaceId).eq("is_deleted", false),
+        supabaseAdmin.from("campaigns").select("stats_sent, stats_opened, stats_clicked, stats_replied, stats_bounced, status").eq("workspace_id", workspaceId),
+        supabaseAdmin.from("activities").select("type").eq("workspace_id", workspaceId).limit(1e3)
+      ]);
+      const campaigns = campaignsRes.data || [];
+      const campStats = campaigns.reduce((acc, curr) => ({
+        sent: acc.sent + (curr.stats_sent || 0),
+        opened: acc.opened + (curr.stats_opened || 0),
+        clicked: acc.clicked + (curr.stats_clicked || 0),
+        replied: acc.replied + (curr.stats_replied || 0),
+        bounced: acc.bounced + (curr.stats_bounced || 0)
+      }), { sent: 0, opened: 0, clicked: 0, replied: 0, bounced: 0 });
+      const activities = activitiesRes.data || [];
+      const actSent = activities.filter((a) => a.type === "EMAIL_SENT").length;
+      const actOpened = activities.filter((a) => a.type === "EMAIL_OPENED").length;
+      const actClicked = activities.filter((a) => a.type === "EMAIL_CLICKED").length;
+      const actReplied = activities.filter((a) => a.type === "REPLY").length;
+      const actBounced = activities.filter((a) => a.type === "EMAIL_BOUNCED").length;
+      const actFailed = activities.filter((a) => a.type === "EMAIL_FAILED").length;
+      const totalSent = Math.max(campStats.sent, actSent);
+      const totalOpened = Math.max(campStats.opened, actOpened);
+      const totalClicked = Math.max(campStats.clicked, actClicked);
+      const totalReplied = Math.max(campStats.replied, actReplied);
+      const totalBounced = Math.max(campStats.bounced, actBounced);
+      const totalFailed = actFailed;
+      const leadsCount = leadsRes.count || 0;
+      const activeCampaignsCount = campaigns.filter((c) => c.status === "RUNNING").length;
+      const openRate = totalSent > 0 ? totalOpened / totalSent * 100 : 0;
+      const replyRate = totalSent > 0 ? totalReplied / totalSent * 100 : 0;
+      const clickRate = totalSent > 0 ? totalClicked / totalSent * 100 : 0;
+      const bounceRate = totalSent > 0 ? totalBounced / totalSent * 100 : 0;
+      const deliveryRate = totalSent > 0 ? Math.max(0, (totalSent - totalFailed - totalBounced) / totalSent * 100) : 100;
+      const result = {
+        leadsCount,
+        campaignsCount: campaigns.length,
+        activeCampaignsCount,
+        totalSent,
+        totalOpened,
+        totalClicked,
+        totalReplied,
+        totalBounced,
+        totalFailed,
+        openRate: Number(openRate.toFixed(1)),
+        replyRate: Number(replyRate.toFixed(1)),
+        clickRate: Number(clickRate.toFixed(1)),
+        bounceRate: Number(bounceRate.toFixed(1)),
+        deliveryRate: Number(deliveryRate.toFixed(1))
+      };
+      this.cache[workspaceId] = {
+        data: result,
+        timestamp: Date.now()
+      };
+      return result;
+    } catch (err) {
+      console.error("[AnalyticsService] Error calculating metrics:", err);
+      return {
+        leadsCount: 0,
+        campaignsCount: 0,
+        activeCampaignsCount: 0,
+        totalSent: 0,
+        totalOpened: 0,
+        totalClicked: 0,
+        totalReplied: 0,
+        totalBounced: 0,
+        totalFailed: 0,
+        openRate: 0,
+        replyRate: 0,
+        clickRate: 0,
+        bounceRate: 0,
+        deliveryRate: 100
+      };
     }
-    const totalSent = stats.statsSent || 0;
-    const totalReplied = stats.statsReplied || 0;
-    const totalBounced = stats.statsBounced || 0;
-    const result = {
-      leadsCount: leadsRes.count || 0,
-      campaignsCount: campaignsRes.count || 0,
-      totalSent,
-      replyRate: totalSent > 0 ? totalReplied / totalSent * 100 : 0,
-      bounceRate: totalSent > 0 ? totalBounced / totalSent * 100 : 0
-    };
-    this.cache[workspaceId] = {
-      data: result,
-      timestamp: Date.now()
-    };
-    return result;
   }
   static async getCampaignPerformance(campaignId) {
     const { data: campaign, error } = await supabaseAdmin.from("campaigns").select("*").eq("id", campaignId).single();
@@ -1142,6 +1186,28 @@ var CampaignService = class {
       provider_id: data.providerId || data.provider_id || null,
       status: "DRAFT"
     }).select().single();
+    if (error) throw error;
+    return campaign;
+  }
+  static async updateCampaign(campaignId, workspaceId, data) {
+    const updateData = {
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    if (data.name !== void 0) updateData.name = data.name;
+    if (data.templateId !== void 0 || data.template_id !== void 0) {
+      updateData.template_id = data.templateId ?? data.template_id;
+    }
+    if (data.targetCategory !== void 0 || data.target_category !== void 0) {
+      updateData.target_category = data.targetCategory ?? data.target_category;
+    }
+    if (data.targetStatus !== void 0 || data.target_status !== void 0) {
+      updateData.target_status = data.targetStatus ?? data.target_status;
+    }
+    if (data.providerId !== void 0 || data.provider_id !== void 0) {
+      updateData.provider_id = data.providerId ?? data.provider_id;
+    }
+    if (data.status !== void 0) updateData.status = data.status;
+    const { data: campaign, error } = await supabaseAdmin.from("campaigns").update(updateData).eq("id", campaignId).eq("workspace_id", workspaceId).select("*, template:templates(name, subject)").single();
     if (error) throw error;
     return campaign;
   }
@@ -2362,6 +2428,22 @@ async function createApp() {
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
+    }
+  });
+  api.put("/campaigns/:id", requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
+    try {
+      const data = await CampaignService.updateCampaign(req.params.id, req.user.workspaceId, req.body);
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message || "Failed to update campaign" });
+    }
+  });
+  api.patch("/campaigns/:id", requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
+    try {
+      const data = await CampaignService.updateCampaign(req.params.id, req.user.workspaceId, req.body);
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message || "Failed to update campaign" });
     }
   });
   api.get("/templates", requirePermission(PERMISSIONS.CAMPAIGNS_VIEW), async (req, res) => {
