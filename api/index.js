@@ -2305,7 +2305,7 @@ async function createApp() {
   return app;
 }
 
-// api/index.ts
+// src/serverless.ts
 var cachedApp = null;
 async function handler(req, res) {
   if (!cachedApp) {
