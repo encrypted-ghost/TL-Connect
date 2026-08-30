@@ -1,7 +1,7 @@
 import { inngest } from '../../lib/inngest.client.ts';
 import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 
-export const runCampaignWorkflow = inngest.createFunction(
+export const runCampaignWorkflow = (inngest as any).createFunction(
   {
     id: 'run-outreach-campaign',
     name: 'Run Outreach Campaign Fanout',

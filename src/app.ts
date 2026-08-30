@@ -41,16 +41,23 @@ export async function createApp() {
       }
 
       // 1. Ensure Admin in Auth
-      const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+      const authAdmin = (supabaseAdmin.auth as any).admin;
+      if (!authAdmin) {
+        console.warn('[Bootstrap] Supabase auth admin API not available. Skipping admin bootstrap.');
+        return;
+      }
+
+      const { data: listData, error: listError } = await authAdmin.listUsers();
       if (listError) {
         console.error('[Bootstrap] Auth list failed:', listError.message);
         return;
       }
       
+      const users = listData?.users || [];
       let targetAuthUser = (users as any[]).find(u => u.email?.toLowerCase() === adminEmail);
       
       if (!targetAuthUser) {
-        const { data: { user: sbUser }, error: sbError } = await supabaseAdmin.auth.admin.createUser({
+        const { data: createData, error: sbError } = await authAdmin.createUser({
           email: adminEmail,
           password: adminPass,
           email_confirm: true,
@@ -61,9 +68,9 @@ export async function createApp() {
           console.error('[Bootstrap] Auth creation failed:', sbError.message);
           return;
         }
-        targetAuthUser = sbUser;
+        targetAuthUser = createData?.user;
       } else {
-        await supabaseAdmin.auth.admin.updateUserById(targetAuthUser.id, { 
+        await authAdmin.updateUserById(targetAuthUser.id, { 
           password: adminPass,
           email_confirm: true
         });

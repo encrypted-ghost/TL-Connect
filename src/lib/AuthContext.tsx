@@ -1,10 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { apiClient } from './apiClient';
 
 interface AuthContextType {
-  user: User | null;
+  user: any | null;
   profile: any | null;
   loading: boolean;
   signIn: (email: string, pass: string) => Promise<void>;
@@ -14,19 +13,22 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const auth = supabase.auth as any;
+
     // 1. Check current session
     const checkSession = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data, error } = await auth.getSession();
+        const session = data?.session;
         if (error) {
-          if (error.message.includes('Refresh Token Not Found')) {
+          if (error.message?.includes('Refresh Token Not Found')) {
             console.warn('Stale session detected, clearing storage...');
-            await supabase.auth.signOut();
+            await auth.signOut();
             handleSession(null);
           } else {
             console.error('Initial session fetch error:', error.message);
@@ -44,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkSession();
 
     // 2. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: subData } = auth.onAuthStateChange(async (event: string, session: any) => {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);
@@ -56,11 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
-      subscription?.unsubscribe();
+      subData?.subscription?.unsubscribe?.();
     };
   }, []);
 
-  const handleSession = async (session: Session | null) => {
+  const handleSession = async (session: any | null) => {
     if (session) {
       setUser(session.user);
       // Fetch profile from our API (DB-backed RBAC)
@@ -81,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, pass: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error } = await (supabase.auth as any).signInWithPassword({
       email,
       password: pass,
     });
@@ -89,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    await (supabase.auth as any).signOut();
   };
 
   return (

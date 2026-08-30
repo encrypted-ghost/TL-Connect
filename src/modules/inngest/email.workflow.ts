@@ -2,7 +2,7 @@ import { inngest } from '../../lib/inngest.client.ts';
 import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
 import { EmailProviderFactory } from '../email/email.factory.ts';
 
-export const dispatchEmailWorkflow = inngest.createFunction(
+export const dispatchEmailWorkflow = (inngest as any).createFunction(
   {
     id: 'dispatch-outreach-email',
     name: 'Dispatch Outreach Email',

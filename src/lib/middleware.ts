@@ -30,17 +30,14 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     let authError: any = null;
 
     try {
-      // Primary method: getUser verification
-      // We use the supabaseAdmin client but we want to ensure it doesn't 
-      // trigger internal "session missing" errors which can happen in some Node environments.
-      const { data, error } = await supabaseAdmin.auth.getUser(token);
+      const auth = supabaseAdmin.auth as any;
+      const { data, error } = await auth.getUser(token);
       
       if (error) {
-        // If we get a "session missing" or similar library error, we attempt fallback
         if (error.message?.includes('session missing')) {
           const decoded = decodeJwt(token);
           if (decoded?.sub) {
-            const { data: adminData, error: adminError } = await supabaseAdmin.auth.admin.getUserById(decoded.sub as string);
+            const { data: adminData, error: adminError } = await auth.admin?.getUserById(decoded.sub as string);
             if (adminData?.user && !adminError) {
               sbUser = adminData.user;
             } else {
@@ -54,10 +51,10 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
         sbUser = data?.user;
       }
     } catch (e: any) {
-      // Catch-all for unexpected library failures
+      const auth = supabaseAdmin.auth as any;
       const decoded = decodeJwt(token);
       if (decoded?.sub) {
-        const { data: adminData } = await supabaseAdmin.auth.admin.getUserById(decoded.sub as string);
+        const { data: adminData } = await auth.admin?.getUserById(decoded.sub as string);
         if (adminData?.user) {
           sbUser = adminData.user;
         } else {

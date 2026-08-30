@@ -14,7 +14,8 @@ export const apiClient = axios.create({
 // Auto-inject token from Supabase if available
 apiClient.interceptors.request.use(async (config) => {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data } = await (supabase.auth as any).getSession();
+    const session = data?.session;
     if (session?.access_token) {
       config.headers.set('Authorization', `Bearer ${session.access_token}`);
     }
