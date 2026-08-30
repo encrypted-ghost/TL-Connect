@@ -1002,11 +1002,14 @@ var CampaignService = class {
     if (campaign.target_status && campaign.target_status !== "ALL") {
       query = query.eq("status", campaign.target_status);
     }
-    let { data: leads, error: lError } = await query;
-    if (lError) {
-      console.warn("[CampaignService] Targeted query fallback:", lError.message);
+    let leads = [];
+    const { data: primaryLeads, error: lError } = await query;
+    if (lError || !primaryLeads) {
+      console.warn("[CampaignService] Targeted query fallback:", lError?.message);
       const fallbackRes = await supabaseAdmin.from("leads").select("id, email, first_name, last_name, status").eq("workspace_id", workspaceId).eq("is_deleted", false);
       leads = fallbackRes.data || [];
+    } else {
+      leads = primaryLeads;
     }
     if (!leads || leads.length === 0) {
       throw new Error(`No leads matched the audience filter (${campaign.target_category || "All Categories"}, ${campaign.target_status || "All Statuses"}).`);
