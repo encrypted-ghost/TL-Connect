@@ -1,5 +1,8 @@
--- TL Connect System Schema
--- Targeted Schema: public
+-- =============================================================================
+-- TL Connect - Complete System Schema
+-- Run this in your Supabase Project: SQL Editor > New query > Run
+-- =============================================================================
+
 SET search_path TO public;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -10,8 +13,7 @@ DO $$ BEGIN
     END IF;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- Tables
-
+-- 1. Workspaces
 CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -21,6 +23,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 2. Workspace Settings
 CREATE TABLE IF NOT EXISTS workspace_settings (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     workspace_id TEXT UNIQUE NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -30,6 +33,7 @@ CREATE TABLE IF NOT EXISTS workspace_settings (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 3. Users (RBAC)
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -43,6 +47,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 4. Companies
 CREATE TABLE IF NOT EXISTS companies (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name TEXT NOT NULL,
@@ -55,6 +60,7 @@ CREATE TABLE IF NOT EXISTS companies (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 5. Leads (Prospects / Recipients)
 CREATE TABLE IF NOT EXISTS leads (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     email TEXT NOT NULL,
@@ -75,6 +81,7 @@ CREATE TABLE IF NOT EXISTS leads (
     UNIQUE(email, workspace_id)
 );
 
+-- 6. Tags & Lead Tags
 CREATE TABLE IF NOT EXISTS tags (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name TEXT NOT NULL,
@@ -89,6 +96,7 @@ CREATE TABLE IF NOT EXISTS lead_tags (
     PRIMARY KEY (lead_id, tag_id)
 );
 
+-- 7. Templates (MJML & HTML)
 CREATE TABLE IF NOT EXISTS templates (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name TEXT NOT NULL,
@@ -101,6 +109,7 @@ CREATE TABLE IF NOT EXISTS templates (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 8. Campaigns
 CREATE TABLE IF NOT EXISTS campaigns (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name TEXT NOT NULL,
@@ -118,6 +127,24 @@ CREATE TABLE IF NOT EXISTS campaigns (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 9. Email Providers (Multi-Provider Engine)
+CREATE TABLE IF NOT EXISTS email_providers (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    provider_type TEXT NOT NULL, -- 'brevo', 'resend', 'sendgrid', 'postmark', 'mailjet', 'mailgun', 'smtp', 'mock'
+    name TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    from_email TEXT NOT NULL,
+    from_name TEXT NOT NULL,
+    reply_to TEXT,
+    credentials JSONB NOT NULL DEFAULT '{}',
+    daily_limit INTEGER NOT NULL DEFAULT 1000,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 10. Domains
 CREATE TABLE IF NOT EXISTS domains (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     domain TEXT NOT NULL,
@@ -129,6 +156,7 @@ CREATE TABLE IF NOT EXISTS domains (
     UNIQUE(domain, workspace_id)
 );
 
+-- 11. Activities (Audit Log & Engagement Telemetry)
 CREATE TABLE IF NOT EXISTS activities (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     type TEXT NOT NULL,
@@ -140,6 +168,7 @@ CREATE TABLE IF NOT EXISTS activities (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 12. Queue Jobs
 CREATE TABLE IF NOT EXISTS queue_jobs (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     type TEXT NOT NULL,
@@ -155,6 +184,7 @@ CREATE TABLE IF NOT EXISTS queue_jobs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 13. Login Logs
 CREATE TABLE IF NOT EXISTS login_logs (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     user_id TEXT NOT NULL,
@@ -163,6 +193,15 @@ CREATE TABLE IF NOT EXISTS login_logs (
     user_agent TEXT,
     status TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 14. Unsubscribes
+CREATE TABLE IF NOT EXISTS unsubscribes (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    email TEXT NOT NULL,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(email, workspace_id)
 );
 
 -- Functions
@@ -187,13 +226,7 @@ BEGIN
 END;
 $$;
 
--- Permissions
-GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
-
--- Indexes for performance
+-- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_leads_workspace_id ON leads(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_leads_email ON leads(email);
 CREATE INDEX IF NOT EXISTS idx_campaigns_workspace_id ON campaigns(workspace_id);
@@ -202,3 +235,13 @@ CREATE INDEX IF NOT EXISTS idx_activities_lead_id ON activities(lead_id);
 CREATE INDEX IF NOT EXISTS idx_queue_jobs_status_run_at ON queue_jobs(status, run_at);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_workspace_id ON users(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_email_providers_workspace ON email_providers(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_email_providers_active ON email_providers(workspace_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_unsubscribes_email ON unsubscribes(email);
+CREATE INDEX IF NOT EXISTS idx_unsubscribes_workspace_id ON unsubscribes(workspace_id);
+
+-- Permissions
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
