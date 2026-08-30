@@ -1,11 +1,10 @@
-import { createApp } from '../server.ts';
+import { createApp } from '../src/app.ts';
 
-let appPromise: any = null;
+let cachedApp: any = null;
 
 export default async function handler(req: any, res: any) {
-  if (!appPromise) {
-    appPromise = createApp();
+  if (!cachedApp) {
+    cachedApp = await createApp();
   }
-  const app = await appPromise;
-  return app(req, res);
+  return cachedApp(req, res);
 }

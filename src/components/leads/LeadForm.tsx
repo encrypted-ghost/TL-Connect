@@ -5,6 +5,7 @@ import * as z from 'zod';
 import { Button } from '../ui/button';
 import { toast } from 'sonner';
 import { apiClient } from '@/src/lib/apiClient';
+import { getErrorMessage } from '@/src/lib/utils';
 
 const leadSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -38,7 +39,7 @@ export function LeadForm({ onSuccess, onCancel }: LeadFormProps) {
       reset();
       onSuccess?.();
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Failed to create lead');
+      toast.error(getErrorMessage(error, 'Failed to create lead'));
     }
   };
 

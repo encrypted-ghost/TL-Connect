@@ -33,3 +33,24 @@ export function timeAgo(date: Date | string) {
   if (minutes > 0) return `${minutes}m ago`;
   return 'just now';
 }
+
+/**
+ * Safely format error object or string into a string for toasts and logs
+ */
+export function getErrorMessage(err: any, fallback: string = 'An error occurred'): string {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  if (err.response?.data?.error) {
+    const apiErr = err.response.data.error;
+    if (typeof apiErr === 'string') return apiErr;
+    if (apiErr.message) return apiErr.message;
+    return JSON.stringify(apiErr);
+  }
+  if (err.message) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return fallback;
+  }
+}
+
