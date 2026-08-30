@@ -1,5 +1,5 @@
-import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
-import { EmailProviderFactory } from '../email/email.factory.ts';
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { EmailProviderFactory } from '../email/email.factory';
 
 export class QueueService {
   private static isProcessing = false;

@@ -1,6 +1,6 @@
-import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
-import { QueueService } from '../queue/queue.service.ts';
-import { TemplateService } from '../templates/template.service.ts';
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { QueueService } from '../queue/queue.service';
+import { TemplateService } from '../templates/template.service';
 
 export class CampaignService {
   static async getCampaigns(workspaceId: string) {
@@ -79,7 +79,7 @@ export class CampaignService {
 
     // Trigger Inngest Event Queue
     try {
-      const { inngest } = await import('../../lib/inngest.client.ts');
+      const { inngest } = await import('../../lib/inngest.client');
       await inngest.send({
         name: 'outreach/campaign.started',
         data: { campaignId, workspaceId },

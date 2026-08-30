@@ -2,18 +2,18 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { authMiddleware } from './lib/middleware.ts';
-import { requirePermission } from './lib/rbac.middleware.ts';
-import { PERMISSIONS } from './modules/auth/rbac.util.ts';
-import { AnalyticsService } from './modules/analytics/analytics.service.ts';
-import { CampaignService } from './modules/campaigns/campaign.service.ts';
-import { TemplateService } from './modules/templates/template.service.ts';
-import { LeadService } from './modules/leads/lead.service.ts';
-import { QueueService } from './modules/queue/queue.service.ts';
-import { EmailProviderFactory } from './modules/email/email.factory.ts';
-import { supabaseAdmin } from './lib/supabaseAdmin.ts';
+import { authMiddleware } from './lib/middleware';
+import { requirePermission } from './lib/rbac.middleware';
+import { PERMISSIONS } from './modules/auth/rbac.util';
+import { AnalyticsService } from './modules/analytics/analytics.service';
+import { CampaignService } from './modules/campaigns/campaign.service';
+import { TemplateService } from './modules/templates/template.service';
+import { LeadService } from './modules/leads/lead.service';
+import { QueueService } from './modules/queue/queue.service';
+import { EmailProviderFactory } from './modules/email/email.factory';
+import { supabaseAdmin } from './lib/supabaseAdmin';
 import { serve } from 'inngest/express';
-import { inngest, inngestFunctions } from './modules/inngest/index.ts';
+import { inngest, inngestFunctions } from './modules/inngest/index';
 
 export async function createApp() {
   const app = express();
@@ -569,7 +569,7 @@ export async function createApp() {
 
   api.get('/activity', requirePermission(PERMISSIONS.ANALYTICS_VIEW), async (req, res) => {
     try {
-      const { ActivityService } = await import('./modules/activity/activity.service.ts');
+      const { ActivityService } = await import('./modules/activity/activity.service');
       const data = await ActivityService.getWorkspaceActivity(req.user!.workspaceId);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }

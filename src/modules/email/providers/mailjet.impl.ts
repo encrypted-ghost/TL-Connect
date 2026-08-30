@@ -1,6 +1,6 @@
-import type { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface.ts';
+import type { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface';
 import Mailjet from 'node-mailjet';
-import { env } from '../../../config/env.config.ts';
+import { env } from '../../../config/env.config';
 
 export interface MailjetCredentials {
   apiKey?: string;

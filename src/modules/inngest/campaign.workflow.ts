@@ -1,5 +1,5 @@
-import { inngest } from '../../lib/inngest.client.ts';
-import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
+import { inngest } from '../../lib/inngest.client';
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
 
 export const runCampaignWorkflow = (inngest as any).createFunction(
   {

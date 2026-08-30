@@ -9,15 +9,15 @@ process.env.SUPABASE_SECRET_KEY = 'mock-secret-key-for-test-suite';
 process.env.SUPABASE_PUBLISHABLE_KEY = 'mock-pub-key-for-test-suite';
 process.env.JWT_SECRET = 'super-secret-jwt-test-key-32-chars-long!';
 
-import { EmailProviderFactory } from '../src/modules/email/email.factory.ts';
-import { BrevoEmailProvider } from '../src/modules/email/providers/brevo.impl.ts';
-import { ResendEmailProvider } from '../src/modules/email/providers/resend.impl.ts';
-import { SendGridEmailProvider } from '../src/modules/email/providers/sendgrid.impl.ts';
-import { PostmarkEmailProvider } from '../src/modules/email/providers/postmark.impl.ts';
-import { MailgunEmailProvider } from '../src/modules/email/providers/mailgun.impl.ts';
-import { SmtpEmailProvider } from '../src/modules/email/providers/smtp.impl.ts';
-import { MailjetEmailProvider } from '../src/modules/email/providers/mailjet.impl.ts';
-import { MockEmailProvider } from '../src/modules/email/providers/mock.impl.ts';
+import { EmailProviderFactory } from '../src/modules/email/email.factory';
+import { BrevoEmailProvider } from '../src/modules/email/providers/brevo.impl';
+import { ResendEmailProvider } from '../src/modules/email/providers/resend.impl';
+import { SendGridEmailProvider } from '../src/modules/email/providers/sendgrid.impl';
+import { PostmarkEmailProvider } from '../src/modules/email/providers/postmark.impl';
+import { MailgunEmailProvider } from '../src/modules/email/providers/mailgun.impl';
+import { SmtpEmailProvider } from '../src/modules/email/providers/smtp.impl';
+import { MailjetEmailProvider } from '../src/modules/email/providers/mailjet.impl';
+import { MockEmailProvider } from '../src/modules/email/providers/mock.impl';
 
 let passed = 0;
 let failed = 0;

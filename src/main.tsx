@@ -1,8 +1,8 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
-import App from './App.tsx';
+import App from './App';
 import './index.css';
-import {AuthProvider} from './lib/AuthContext.tsx';
+import {AuthProvider} from './lib/AuthContext';
 import {Toaster} from 'sonner';
 
 createRoot(document.getElementById('root')!).render(

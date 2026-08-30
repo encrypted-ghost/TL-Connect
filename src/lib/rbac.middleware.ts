@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { hasPermission, type Role } from '../modules/auth/rbac.util.ts';
+import { hasPermission, type Role } from '../modules/auth/rbac.util';
 
 export function requirePermission(permission: string) {
   return (req: Request, res: Response, next: NextFunction) => {

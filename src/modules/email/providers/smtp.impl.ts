@@ -1,4 +1,4 @@
-import type { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface.ts';
+import type { IEmailProvider, EmailProviderOptions, SendResult } from '../provider.interface';
 import nodemailer from 'nodemailer';
 
 export interface SmtpCredentials {

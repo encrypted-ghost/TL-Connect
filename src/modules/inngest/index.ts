@@ -1,5 +1,5 @@
-import { dispatchEmailWorkflow } from './email.workflow.ts';
-import { runCampaignWorkflow } from './campaign.workflow.ts';
+import { dispatchEmailWorkflow } from './email.workflow';
+import { runCampaignWorkflow } from './campaign.workflow';
 
 export const inngestFunctions = [dispatchEmailWorkflow, runCampaignWorkflow];
-export { inngest } from '../../lib/inngest.client.ts';
+export { inngest } from '../../lib/inngest.client';

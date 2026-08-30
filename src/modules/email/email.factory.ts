@@ -1,13 +1,13 @@
-import type { IEmailProvider } from './provider.interface.ts';
-import { MockEmailProvider } from './providers/mock.impl.ts';
-import { MailjetEmailProvider } from './providers/mailjet.impl.ts';
-import { BrevoEmailProvider } from './providers/brevo.impl.ts';
-import { ResendEmailProvider } from './providers/resend.impl.ts';
-import { SendGridEmailProvider } from './providers/sendgrid.impl.ts';
-import { PostmarkEmailProvider } from './providers/postmark.impl.ts';
-import { MailgunEmailProvider } from './providers/mailgun.impl.ts';
-import { SmtpEmailProvider } from './providers/smtp.impl.ts';
-import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
+import type { IEmailProvider } from './provider.interface';
+import { MockEmailProvider } from './providers/mock.impl';
+import { MailjetEmailProvider } from './providers/mailjet.impl';
+import { BrevoEmailProvider } from './providers/brevo.impl';
+import { ResendEmailProvider } from './providers/resend.impl';
+import { SendGridEmailProvider } from './providers/sendgrid.impl';
+import { PostmarkEmailProvider } from './providers/postmark.impl';
+import { MailgunEmailProvider } from './providers/mailgun.impl';
+import { SmtpEmailProvider } from './providers/smtp.impl';
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
 
 export interface WorkspaceEmailConfig {
   provider: IEmailProvider;

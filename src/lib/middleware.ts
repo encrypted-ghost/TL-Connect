@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { supabaseAdmin } from './supabaseAdmin.ts';
+import { supabaseAdmin } from './supabaseAdmin';
 import { decodeJwt } from 'jose';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';

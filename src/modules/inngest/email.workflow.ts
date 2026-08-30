@@ -1,6 +1,6 @@
-import { inngest } from '../../lib/inngest.client.ts';
-import { supabaseAdmin } from '../../lib/supabaseAdmin.ts';
-import { EmailProviderFactory } from '../email/email.factory.ts';
+import { inngest } from '../../lib/inngest.client';
+import { supabaseAdmin } from '../../lib/supabaseAdmin';
+import { EmailProviderFactory } from '../email/email.factory';
 
 export const dispatchEmailWorkflow = (inngest as any).createFunction(
   {
