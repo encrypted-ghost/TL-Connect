@@ -1,12 +1,12 @@
 import { inngest } from '../../lib/inngest.client';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 
-export const runCampaignWorkflow = (inngest as any).createFunction(
+export const runCampaignWorkflow = inngest.createFunction(
   {
     id: 'run-outreach-campaign',
     name: 'Run Outreach Campaign Fanout',
+    triggers: [{ event: 'outreach/campaign.started' }],
   },
-  { event: 'outreach/campaign.started' },
   async ({ event, step }) => {
     const { campaignId, workspaceId } = event.data;
 

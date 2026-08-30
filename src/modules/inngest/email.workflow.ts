@@ -2,10 +2,11 @@ import { inngest } from '../../lib/inngest.client';
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { EmailProviderFactory } from '../email/email.factory';
 
-export const dispatchEmailWorkflow = (inngest as any).createFunction(
+export const dispatchEmailWorkflow = inngest.createFunction(
   {
     id: 'dispatch-outreach-email',
     name: 'Dispatch Outreach Email',
+    triggers: [{ event: 'outreach/email.dispatch' }],
     retries: 3,
     concurrency: {
       limit: 2,
@@ -17,7 +18,6 @@ export const dispatchEmailWorkflow = (inngest as any).createFunction(
       key: 'event.data.workspaceId',
     },
   },
-  { event: 'outreach/email.dispatch' },
   async ({ event, step }) => {
     const { campaignId, leadId, workspaceId, toEmail, subject, html } = event.data;
 
