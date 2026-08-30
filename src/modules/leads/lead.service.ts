@@ -20,12 +20,20 @@ export class LeadService {
     if (status && status !== 'ALL') query = query.eq('status', status);
     if (category && category !== 'ALL') query = query.eq('category', category);
     if (search) {
-      query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,company_name.ilike.%${search}%`);
+      query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%`);
     }
 
     const { data, error } = await query.order('created_at', { ascending: false });
-    if (error) throw new Error(error.message);
-    return data || [];
+    if (error) {
+      console.error('[LeadService] getLeads error:', error);
+      throw new Error(error.message);
+    }
+    
+    // Normalize company name across company relation and company_name field
+    return (data || []).map(lead => ({
+      ...lead,
+      company_name: lead.company_name || lead.company?.name || null
+    }));
   }
 
   static async createLead(workspaceId: string, data: any) {
@@ -70,8 +78,8 @@ export class LeadService {
       title: data.title || '',
       phone: data.phone || '',
       linkedin_url: data.linkedinUrl || data.linkedin_url || '',
-      company_name: rawCompanyName || null,
       company_id: companyId,
+      company_name: rawCompanyName || null,
       category: data.category || 'Outbound',
       status: data.status || 'NEW',
       owner_id: data.ownerId || data.owner_id || null,
@@ -87,26 +95,132 @@ export class LeadService {
 
     if (existing) {
       if (existing.is_deleted) {
-        const { data: restored, error: restError } = await supabaseAdmin
-          .from('leads')
-          .update({ ...formattedData, is_deleted: false, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-          .select()
-          .single();
-        if (restError) throw new Error(restError.message);
-        return restored;
+        try {
+          const { data: restored, error: restError } = await supabaseAdmin
+            .from('leads')
+            .update({ ...formattedData, is_deleted: false, updated_at: new Date().toISOString() })
+            .eq('id', existing.id)
+            .select()
+            .single();
+          if (restError) throw restError;
+          return restored;
+        } catch (updateErr: any) {
+          // Fallback if company_name column is missing
+          delete formattedData.company_name;
+          const { data: restored, error: retryError } = await supabaseAdmin
+            .from('leads')
+            .update({ ...formattedData, is_deleted: false, updated_at: new Date().toISOString() })
+            .eq('id', existing.id)
+            .select()
+            .single();
+          if (retryError) throw new Error(retryError.message);
+          return restored;
+        }
       }
       throw new Error('Lead with this email already exists in this workspace');
     }
 
-    const { data: newLead, error: insertError } = await supabaseAdmin
-      .from('leads')
-      .insert([{ ...formattedData, workspace_id: workspaceId }])
-      .select()
-      .single();
+    try {
+      const { data: newLead, error: insertError } = await supabaseAdmin
+        .from('leads')
+        .insert([{ ...formattedData, workspace_id: workspaceId }])
+        .select()
+        .single();
 
-    if (insertError) throw new Error(insertError.message);
-    return newLead;
+      if (insertError) throw insertError;
+      return newLead;
+    } catch (insertErr: any) {
+      // Safe fallback if company_name column is not in DB yet
+      if (insertErr.message?.includes('company_name')) {
+        delete formattedData.company_name;
+        const { data: retryLead, error: retryErr } = await supabaseAdmin
+          .from('leads')
+          .insert([{ ...formattedData, workspace_id: workspaceId }])
+          .select()
+          .single();
+        if (retryErr) throw new Error(retryErr.message);
+        return retryLead;
+      }
+      throw new Error(insertErr.message);
+    }
+  }
+
+  static async updateLead(id: string, workspaceId: string, data: any) {
+    const rawCompanyName = (data.companyName || data.company_name || data.company || '').trim();
+    let companyId = data.companyId || data.company_id || null;
+
+    if (rawCompanyName && !companyId) {
+      try {
+        const { data: existingCompany } = await supabaseAdmin
+          .from('companies')
+          .select('id')
+          .eq('workspace_id', workspaceId)
+          .ilike('name', rawCompanyName)
+          .maybeSingle();
+
+        if (existingCompany) {
+          companyId = existingCompany.id;
+        } else {
+          const { data: newCompany } = await supabaseAdmin
+            .from('companies')
+            .insert([{
+              name: rawCompanyName,
+              workspace_id: workspaceId
+            }])
+            .select('id')
+            .single();
+
+          if (newCompany) {
+            companyId = newCompany.id;
+          }
+        }
+      } catch (err) {
+        console.warn('[LeadService] Company lookup/creation warning on update:', err);
+      }
+    }
+
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (data.email !== undefined) updateData.email = data.email.toLowerCase().trim();
+    if (data.firstName !== undefined || data.first_name !== undefined) updateData.first_name = data.firstName ?? data.first_name;
+    if (data.lastName !== undefined || data.last_name !== undefined) updateData.last_name = data.lastName ?? data.last_name;
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.linkedinUrl !== undefined || data.linkedin_url !== undefined) updateData.linkedin_url = data.linkedinUrl ?? data.linkedin_url;
+    if (companyId !== null) updateData.company_id = companyId;
+    if (rawCompanyName) updateData.company_name = rawCompanyName;
+    if (data.category !== undefined) updateData.category = data.category;
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.customFields !== undefined || data.custom_fields !== undefined) updateData.custom_fields = data.customFields ?? data.custom_fields;
+
+    try {
+      const { data: updatedLead, error } = await supabaseAdmin
+        .from('leads')
+        .update(updateData)
+        .eq('id', id)
+        .eq('workspace_id', workspaceId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return updatedLead;
+    } catch (err: any) {
+      if (err.message?.includes('company_name')) {
+        delete updateData.company_name;
+        const { data: retryLead, error: retryErr } = await supabaseAdmin
+          .from('leads')
+          .update(updateData)
+          .eq('id', id)
+          .eq('workspace_id', workspaceId)
+          .select()
+          .single();
+        if (retryErr) throw new Error(retryErr.message);
+        return retryLead;
+      }
+      throw new Error(err.message);
+    }
   }
 
   static async bulkCreateLeads(workspaceId: string, leads: any[]) {
@@ -128,16 +242,35 @@ export class LeadService {
       };
     }).filter(l => l.email);
 
-    const { data, error } = await supabaseAdmin
-      .from('leads')
-      .upsert(formattedLeads, { 
-        onConflict: 'email,workspace_id',
-        ignoreDuplicates: false 
-      })
-      .select();
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('leads')
+        .upsert(formattedLeads, { 
+          onConflict: 'email,workspace_id',
+          ignoreDuplicates: false 
+        })
+        .select();
 
-    if (error) throw new Error(error.message);
-    return data;
+      if (error) throw error;
+      return data;
+    } catch (err: any) {
+      if (err.message?.includes('company_name')) {
+        const cleaned = formattedLeads.map(l => {
+          const { company_name, ...rest } = l;
+          return rest;
+        });
+        const { data: retryData, error: retryErr } = await supabaseAdmin
+          .from('leads')
+          .upsert(cleaned, { 
+            onConflict: 'email,workspace_id',
+            ignoreDuplicates: false 
+          })
+          .select();
+        if (retryErr) throw new Error(retryErr.message);
+        return retryData;
+      }
+      throw new Error(err.message);
+    }
   }
 
   static async deleteLead(id: string, workspace_id: string) {
@@ -157,7 +290,7 @@ export class LeadService {
   static async sendDirectEmail(leadId: string, workspaceId: string, options: { subject: string; html: string; fromName?: string; fromEmail?: string; providerId?: string }) {
     const { data: lead, error: leadErr } = await supabaseAdmin
       .from('leads')
-      .select('*')
+      .select('*, company:companies(name)')
       .eq('id', leadId)
       .eq('workspace_id', workspaceId)
       .single();
@@ -168,12 +301,13 @@ export class LeadService {
     const provider = emailConfig.provider;
     const effectiveFromEmail = options.fromEmail || emailConfig.fromEmail || 'outreach@transferlegacy.com';
     const effectiveFromName = options.fromName || emailConfig.fromName || 'TL Connect';
+    const leadCompany = lead.company_name || lead.company?.name || 'your company';
 
     // Interpolate variables
     let finalHtml = options.html;
     finalHtml = finalHtml.replace(/\{\{first_name\}\}/gi, lead.first_name || 'there');
     finalHtml = finalHtml.replace(/\{\{last_name\}\}/gi, lead.last_name || '');
-    finalHtml = finalHtml.replace(/\{\{company\}\}/gi, lead.company_name || 'your company');
+    finalHtml = finalHtml.replace(/\{\{company\}\}/gi, leadCompany);
     finalHtml = finalHtml.replace(/\{\{email\}\}/gi, lead.email);
 
     const sendResult = await provider.send({
@@ -192,7 +326,6 @@ export class LeadService {
     });
 
     if (!sendResult.success) {
-      // Log failed activity
       await supabaseAdmin.from('activities').insert({
         type: 'EMAIL_FAILED',
         description: `Direct email to ${lead.email} failed: ${sendResult.error || 'Unknown error'}`,
@@ -203,7 +336,6 @@ export class LeadService {
       throw new Error(sendResult.error || 'Failed to dispatch email');
     }
 
-    // Log success activity
     await supabaseAdmin.from('activities').insert({
       type: 'EMAIL_SENT',
       description: `Direct email sent to ${lead.email} via ${emailConfig.providerType}`,
@@ -218,7 +350,6 @@ export class LeadService {
       workspace_id: workspaceId
     });
 
-    // Update lead status
     await supabaseAdmin
       .from('leads')
       .update({ status: 'CONTACTED', updated_at: new Date().toISOString() })

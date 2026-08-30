@@ -73,7 +73,7 @@ export const dispatchEmailWorkflow = inngest.createFunction(
       }
 
       return { ok: true, emailConfig };
-    });
+    }) as any;
 
     if (!canSend.ok) {
       return { skipped: true, reason: canSend.reason };

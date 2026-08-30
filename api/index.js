@@ -1457,11 +1457,17 @@ var LeadService = class {
     if (status && status !== "ALL") query = query.eq("status", status);
     if (category && category !== "ALL") query = query.eq("category", category);
     if (search) {
-      query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,company_name.ilike.%${search}%`);
+      query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%`);
     }
     const { data, error } = await query.order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
-    return data || [];
+    if (error) {
+      console.error("[LeadService] getLeads error:", error);
+      throw new Error(error.message);
+    }
+    return (data || []).map((lead) => ({
+      ...lead,
+      company_name: lead.company_name || lead.company?.name || null
+    }));
   }
   static async createLead(workspaceId, data) {
     const rawCompanyName = (data.companyName || data.company_name || data.company || "").trim();
@@ -1491,8 +1497,8 @@ var LeadService = class {
       title: data.title || "",
       phone: data.phone || "",
       linkedin_url: data.linkedinUrl || data.linkedin_url || "",
-      company_name: rawCompanyName || null,
       company_id: companyId,
+      company_name: rawCompanyName || null,
       category: data.category || "Outbound",
       status: data.status || "NEW",
       owner_id: data.ownerId || data.owner_id || null,
@@ -1501,15 +1507,81 @@ var LeadService = class {
     const { data: existing, error: fetchError } = await supabaseAdmin.from("leads").select("id, is_deleted").eq("email", formattedData.email).eq("workspace_id", workspaceId).maybeSingle();
     if (existing) {
       if (existing.is_deleted) {
-        const { data: restored, error: restError } = await supabaseAdmin.from("leads").update({ ...formattedData, is_deleted: false, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", existing.id).select().single();
-        if (restError) throw new Error(restError.message);
-        return restored;
+        try {
+          const { data: restored, error: restError } = await supabaseAdmin.from("leads").update({ ...formattedData, is_deleted: false, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", existing.id).select().single();
+          if (restError) throw restError;
+          return restored;
+        } catch (updateErr) {
+          delete formattedData.company_name;
+          const { data: restored, error: retryError } = await supabaseAdmin.from("leads").update({ ...formattedData, is_deleted: false, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", existing.id).select().single();
+          if (retryError) throw new Error(retryError.message);
+          return restored;
+        }
       }
       throw new Error("Lead with this email already exists in this workspace");
     }
-    const { data: newLead, error: insertError } = await supabaseAdmin.from("leads").insert([{ ...formattedData, workspace_id: workspaceId }]).select().single();
-    if (insertError) throw new Error(insertError.message);
-    return newLead;
+    try {
+      const { data: newLead, error: insertError } = await supabaseAdmin.from("leads").insert([{ ...formattedData, workspace_id: workspaceId }]).select().single();
+      if (insertError) throw insertError;
+      return newLead;
+    } catch (insertErr) {
+      if (insertErr.message?.includes("company_name")) {
+        delete formattedData.company_name;
+        const { data: retryLead, error: retryErr } = await supabaseAdmin.from("leads").insert([{ ...formattedData, workspace_id: workspaceId }]).select().single();
+        if (retryErr) throw new Error(retryErr.message);
+        return retryLead;
+      }
+      throw new Error(insertErr.message);
+    }
+  }
+  static async updateLead(id, workspaceId, data) {
+    const rawCompanyName = (data.companyName || data.company_name || data.company || "").trim();
+    let companyId = data.companyId || data.company_id || null;
+    if (rawCompanyName && !companyId) {
+      try {
+        const { data: existingCompany } = await supabaseAdmin.from("companies").select("id").eq("workspace_id", workspaceId).ilike("name", rawCompanyName).maybeSingle();
+        if (existingCompany) {
+          companyId = existingCompany.id;
+        } else {
+          const { data: newCompany } = await supabaseAdmin.from("companies").insert([{
+            name: rawCompanyName,
+            workspace_id: workspaceId
+          }]).select("id").single();
+          if (newCompany) {
+            companyId = newCompany.id;
+          }
+        }
+      } catch (err) {
+        console.warn("[LeadService] Company lookup/creation warning on update:", err);
+      }
+    }
+    const updateData = {
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    if (data.email !== void 0) updateData.email = data.email.toLowerCase().trim();
+    if (data.firstName !== void 0 || data.first_name !== void 0) updateData.first_name = data.firstName ?? data.first_name;
+    if (data.lastName !== void 0 || data.last_name !== void 0) updateData.last_name = data.lastName ?? data.last_name;
+    if (data.title !== void 0) updateData.title = data.title;
+    if (data.phone !== void 0) updateData.phone = data.phone;
+    if (data.linkedinUrl !== void 0 || data.linkedin_url !== void 0) updateData.linkedin_url = data.linkedinUrl ?? data.linkedin_url;
+    if (companyId !== null) updateData.company_id = companyId;
+    if (rawCompanyName) updateData.company_name = rawCompanyName;
+    if (data.category !== void 0) updateData.category = data.category;
+    if (data.status !== void 0) updateData.status = data.status;
+    if (data.customFields !== void 0 || data.custom_fields !== void 0) updateData.custom_fields = data.customFields ?? data.custom_fields;
+    try {
+      const { data: updatedLead, error } = await supabaseAdmin.from("leads").update(updateData).eq("id", id).eq("workspace_id", workspaceId).select().single();
+      if (error) throw error;
+      return updatedLead;
+    } catch (err) {
+      if (err.message?.includes("company_name")) {
+        delete updateData.company_name;
+        const { data: retryLead, error: retryErr } = await supabaseAdmin.from("leads").update(updateData).eq("id", id).eq("workspace_id", workspaceId).select().single();
+        if (retryErr) throw new Error(retryErr.message);
+        return retryLead;
+      }
+      throw new Error(err.message);
+    }
   }
   static async bulkCreateLeads(workspaceId, leads) {
     const formattedLeads = leads.map((lead) => {
@@ -1529,12 +1601,28 @@ var LeadService = class {
         is_deleted: false
       };
     }).filter((l) => l.email);
-    const { data, error } = await supabaseAdmin.from("leads").upsert(formattedLeads, {
-      onConflict: "email,workspace_id",
-      ignoreDuplicates: false
-    }).select();
-    if (error) throw new Error(error.message);
-    return data;
+    try {
+      const { data, error } = await supabaseAdmin.from("leads").upsert(formattedLeads, {
+        onConflict: "email,workspace_id",
+        ignoreDuplicates: false
+      }).select();
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      if (err.message?.includes("company_name")) {
+        const cleaned = formattedLeads.map((l) => {
+          const { company_name, ...rest } = l;
+          return rest;
+        });
+        const { data: retryData, error: retryErr } = await supabaseAdmin.from("leads").upsert(cleaned, {
+          onConflict: "email,workspace_id",
+          ignoreDuplicates: false
+        }).select();
+        if (retryErr) throw new Error(retryErr.message);
+        return retryData;
+      }
+      throw new Error(err.message);
+    }
   }
   static async deleteLead(id, workspace_id) {
     const { error } = await supabaseAdmin.from("leads").update({ is_deleted: true, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", id).eq("workspace_id", workspace_id);
@@ -1545,16 +1633,17 @@ var LeadService = class {
    * Send a direct, one-off email to a specific lead
    */
   static async sendDirectEmail(leadId, workspaceId, options) {
-    const { data: lead, error: leadErr } = await supabaseAdmin.from("leads").select("*").eq("id", leadId).eq("workspace_id", workspaceId).single();
+    const { data: lead, error: leadErr } = await supabaseAdmin.from("leads").select("*, company:companies(name)").eq("id", leadId).eq("workspace_id", workspaceId).single();
     if (leadErr || !lead) throw new Error("Lead not found");
     const emailConfig = await EmailProviderFactory.getProviderForWorkspace(workspaceId);
     const provider = emailConfig.provider;
     const effectiveFromEmail = options.fromEmail || emailConfig.fromEmail || "outreach@transferlegacy.com";
     const effectiveFromName = options.fromName || emailConfig.fromName || "TL Connect";
+    const leadCompany = lead.company_name || lead.company?.name || "your company";
     let finalHtml = options.html;
     finalHtml = finalHtml.replace(/\{\{first_name\}\}/gi, lead.first_name || "there");
     finalHtml = finalHtml.replace(/\{\{last_name\}\}/gi, lead.last_name || "");
-    finalHtml = finalHtml.replace(/\{\{company\}\}/gi, lead.company_name || "your company");
+    finalHtml = finalHtml.replace(/\{\{company\}\}/gi, leadCompany);
     finalHtml = finalHtml.replace(/\{\{email\}\}/gi, lead.email);
     const sendResult = await provider.send({
       toEmail: lead.email,
@@ -2135,6 +2224,22 @@ async function createApp() {
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
+    }
+  });
+  api.put("/leads/:id", requirePermission(PERMISSIONS.LEADS_EDIT), async (req, res) => {
+    try {
+      const data = await LeadService.updateLead(req.params.id, req.user.workspaceId, req.body);
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message || "Failed to update lead" });
+    }
+  });
+  api.patch("/leads/:id", requirePermission(PERMISSIONS.LEADS_EDIT), async (req, res) => {
+    try {
+      const data = await LeadService.updateLead(req.params.id, req.user.workspaceId, req.body);
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message || "Failed to update lead" });
     }
   });
   api.post("/leads/:id/send-email", requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {

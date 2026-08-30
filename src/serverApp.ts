@@ -463,6 +463,24 @@ export async function createApp() {
     }
   });
 
+  api.put('/leads/:id', requirePermission(PERMISSIONS.LEADS_EDIT), async (req, res) => {
+    try {
+      const data = await LeadService.updateLead(req.params.id, req.user!.workspaceId, req.body);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to update lead' });
+    }
+  });
+
+  api.patch('/leads/:id', requirePermission(PERMISSIONS.LEADS_EDIT), async (req, res) => {
+    try {
+      const data = await LeadService.updateLead(req.params.id, req.user!.workspaceId, req.body);
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to update lead' });
+    }
+  });
+
   api.post('/leads/:id/send-email', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
     try {
       const { subject, html, fromName, fromEmail, providerId } = req.body;

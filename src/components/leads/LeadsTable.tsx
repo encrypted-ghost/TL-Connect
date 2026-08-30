@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { DataTable } from '../ui/data-table';
 import { Badge } from '../ui/badge';
-import { MoreHorizontal, User, Trash2, Send, Mail, Building, Briefcase } from 'lucide-react';
+import { MoreHorizontal, User, Trash2, Send, Mail, Building, Briefcase, Edit3 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { timeAgo } from '@/src/lib/utils';
 import { 
@@ -11,7 +11,9 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator
 } from '../ui/dropdown-menu';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { DirectEmailModal } from './DirectEmailModal';
+import { LeadForm } from './LeadForm';
 
 interface LeadsTableProps {
   leads: any[];
@@ -32,6 +34,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export function LeadsTable({ leads, onDelete, onAddLead, onRefresh }: LeadsTableProps) {
   const [selectedLeadForEmail, setSelectedLeadForEmail] = useState<any | null>(null);
+  const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<any | null>(null);
 
   const columns = [
     {
@@ -131,6 +134,12 @@ export function LeadsTable({ leads, onDelete, onAddLead, onRefresh }: LeadsTable
               >
                 <Mail size={12} /> Dispatch Direct Email
               </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => setSelectedLeadForEdit(lead)}
+                className="flex items-center gap-2 cursor-pointer text-neutral-200 focus:bg-neutral-800"
+              >
+                <Edit3 size={12} /> Edit Lead
+              </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-neutral-800" />
               <DropdownMenuItem 
                 onClick={() => onDelete?.(lead.id)}
@@ -147,6 +156,7 @@ export function LeadsTable({ leads, onDelete, onAddLead, onRefresh }: LeadsTable
 
   return (
     <>
+      {/* Direct Email Modal */}
       <DirectEmailModal
         lead={selectedLeadForEmail}
         isOpen={!!selectedLeadForEmail}
@@ -157,6 +167,28 @@ export function LeadsTable({ leads, onDelete, onAddLead, onRefresh }: LeadsTable
           onRefresh?.();
         }}
       />
+
+      {/* Edit Lead Modal */}
+      <Dialog open={!!selectedLeadForEdit} onOpenChange={(open) => { if (!open) setSelectedLeadForEdit(null); }}>
+        <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto bg-[#09090b] border-[#27272a] text-white">
+          <DialogHeader className="px-1">
+            <DialogTitle>Edit Prospect</DialogTitle>
+            <DialogDescription className="text-xs text-neutral-400">
+              Update prospect contact information, category, status, and company.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedLeadForEdit && (
+            <LeadForm 
+              initialData={selectedLeadForEdit}
+              onSuccess={() => {
+                setSelectedLeadForEdit(null);
+                onRefresh?.();
+              }} 
+              onCancel={() => setSelectedLeadForEdit(null)} 
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       <DataTable 
         columns={columns as any} 

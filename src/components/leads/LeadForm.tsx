@@ -6,7 +6,7 @@ import { Button } from '../ui/button';
 import { toast } from 'sonner';
 import { apiClient } from '@/src/lib/apiClient';
 import { getErrorMessage } from '@/src/lib/utils';
-import { Tag, Building, Briefcase, Mail, User } from 'lucide-react';
+import { Tag, Building, Briefcase, Mail, User, Phone, Check } from 'lucide-react';
 
 const leadSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -14,19 +14,22 @@ const leadSchema = z.object({
   lastName: z.string().min(1, 'Last name is required'),
   title: z.string().optional(),
   companyName: z.string().optional(),
-  category: z.string().default('Outbound'),
-  status: z.string().default('NEW'),
+  category: z.string().min(1, 'Category is required'),
+  status: z.string().min(1, 'Status is required'),
   phone: z.string().optional(),
 });
 
 type LeadFormValues = z.infer<typeof leadSchema>;
 
 interface LeadFormProps {
+  initialData?: any;
   onSuccess?: () => void;
   onCancel?: () => void;
 }
 
-export function LeadForm({ onSuccess, onCancel }: LeadFormProps) {
+export function LeadForm({ initialData, onSuccess, onCancel }: LeadFormProps) {
+  const isEditing = !!initialData?.id;
+
   const {
     register,
     handleSubmit,
@@ -35,19 +38,30 @@ export function LeadForm({ onSuccess, onCancel }: LeadFormProps) {
   } = useForm<LeadFormValues>({
     resolver: zodResolver(leadSchema),
     defaultValues: {
-      category: 'Outbound',
-      status: 'NEW',
+      email: initialData?.email || '',
+      firstName: initialData?.first_name || initialData?.firstName || '',
+      lastName: initialData?.last_name || initialData?.lastName || '',
+      title: initialData?.title || '',
+      companyName: initialData?.company_name || initialData?.company?.name || initialData?.companyName || '',
+      category: initialData?.category || 'Outbound',
+      status: initialData?.status || 'NEW',
+      phone: initialData?.phone || '',
     }
   });
 
   const onSubmit = async (data: LeadFormValues) => {
     try {
-      await apiClient.post('/leads', data);
-      toast.success('Lead created successfully');
+      if (isEditing) {
+        await apiClient.put(`/leads/${initialData.id}`, data);
+        toast.success('Lead updated successfully');
+      } else {
+        await apiClient.post('/leads', data);
+        toast.success('Lead created successfully');
+      }
       reset();
       onSuccess?.();
     } catch (error: any) {
-      toast.error(getErrorMessage(error, 'Failed to create lead'));
+      toast.error(getErrorMessage(error, isEditing ? 'Failed to update lead' : 'Failed to create lead'));
     }
   };
 
@@ -79,18 +93,30 @@ export function LeadForm({ onSuccess, onCancel }: LeadFormProps) {
         </div>
       </div>
 
-      {/* Email */}
-      <div className="space-y-1.5">
-        <label className="text-[10px] font-bold uppercase text-neutral-500 tracking-wider flex items-center gap-1.5">
-          <Mail size={12} /> Email Address *
-        </label>
-        <input 
-          {...register('email')}
-          type="email"
-          className="w-full bg-[#18181b] border border-[#27272a] rounded-md px-3 py-2 text-sm focus:border-indigo-500 outline-none transition-colors"
-          placeholder="jane.doe@company.com"
-        />
-        {errors.email && <p className="text-[10px] text-red-500">{errors.email.message}</p>}
+      {/* Email & Phone */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase text-neutral-500 tracking-wider flex items-center gap-1.5">
+            <Mail size={12} /> Email Address *
+          </label>
+          <input 
+            {...register('email')}
+            type="email"
+            className="w-full bg-[#18181b] border border-[#27272a] rounded-md px-3 py-2 text-sm focus:border-indigo-500 outline-none transition-colors"
+            placeholder="jane.doe@company.com"
+          />
+          {errors.email && <p className="text-[10px] text-red-500">{errors.email.message}</p>}
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase text-neutral-500 tracking-wider flex items-center gap-1.5">
+            <Phone size={12} /> Phone Number
+          </label>
+          <input 
+            {...register('phone')}
+            className="w-full bg-[#18181b] border border-[#27272a] rounded-md px-3 py-2 text-sm focus:border-indigo-500 outline-none transition-colors"
+            placeholder="+1 555-0199"
+          />
+        </div>
       </div>
 
       {/* Company & Title */}
@@ -137,7 +163,7 @@ export function LeadForm({ onSuccess, onCancel }: LeadFormProps) {
           </select>
         </div>
         <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase text-neutral-500 tracking-wider">Initial Status</label>
+          <label className="text-[10px] font-bold uppercase text-neutral-500 tracking-wider">Status</label>
           <select
             {...register('status')}
             className="w-full bg-[#18181b] border border-[#27272a] rounded-md px-3 py-2 text-sm focus:border-indigo-500 outline-none transition-colors text-neutral-200"
@@ -146,18 +172,20 @@ export function LeadForm({ onSuccess, onCancel }: LeadFormProps) {
             <option value="QUALIFIED">Qualified</option>
             <option value="CONTACTED">Contacted</option>
             <option value="INTERESTED">Interested</option>
+            <option value="REPLIED">Replied</option>
+            <option value="UNQUALIFIED">Unqualified</option>
           </select>
         </div>
       </div>
 
       <div className="flex justify-end gap-3 pt-6 border-t border-[#27272a]">
         {onCancel && (
-          <Button type="button" variant="ghost" onClick={onCancel}>
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={isSubmitting}>
             Cancel
           </Button>
         )}
         <Button type="submit" variant="white" disabled={isSubmitting}>
-          {isSubmitting ? 'Creating Lead...' : 'Create Lead'}
+          {isSubmitting ? (isEditing ? 'Saving...' : 'Creating...') : (isEditing ? 'Save Changes' : 'Create Lead')}
         </Button>
       </div>
     </form>
