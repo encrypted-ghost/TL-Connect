@@ -463,6 +463,25 @@ export async function createApp() {
     }
   });
 
+  api.post('/leads/:id/send-email', requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
+    try {
+      const { subject, html, fromName, fromEmail, providerId } = req.body;
+      if (!subject || !html) {
+        return res.status(400).json({ error: 'Subject and HTML content are required' });
+      }
+      const result = await LeadService.sendDirectEmail(req.params.id, req.user!.workspaceId, {
+        subject,
+        html,
+        fromName,
+        fromEmail,
+        providerId
+      });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to send direct email' });
+    }
+  });
+
   // Profile
   api.get('/auth/me', async (req, res) => {
     res.json(req.user);
@@ -571,6 +590,14 @@ export async function createApp() {
     try {
       const { ActivityService } = await import('./modules/activity/activity.service');
       const data = await ActivityService.getWorkspaceActivity(req.user!.workspaceId);
+      res.json(data);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  api.get('/logs/emails', requirePermission(PERMISSIONS.ANALYTICS_VIEW), async (req, res) => {
+    try {
+      const { ActivityService } = await import('./modules/activity/activity.service');
+      const data = await ActivityService.getEmailLogs(req.user!.workspaceId, Number(req.query.limit) || 100);
       res.json(data);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });

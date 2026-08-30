@@ -26,7 +26,7 @@ export class ActivityService {
     return activity;
   }
 
-  static async getWorkspaceActivity(workspaceId: string, limit = 10) {
+  static async getWorkspaceActivity(workspaceId: string, limit = 20) {
     try {
       const { data, error } = await supabaseAdmin
         .from('activities')
@@ -36,13 +36,42 @@ export class ActivityService {
         .limit(limit);
 
       if (error) throw error;
-      return data;
+      return data || [];
     } catch (err) {
       console.error('Error fetching activity:', err);
-      // Fallback: return empty array instead of throwing to prevent UI crash if possible
-      // but the service should probably throw and the route should handle it.
-      // Keeping throw for now but with a clearer log.
-      throw err;
+      return [];
+    }
+  }
+
+  static async getEmailLogs(workspaceId: string, limit = 100) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('activities')
+        .select(`
+          *,
+          lead:leads(first_name, last_name, email, company_name, category)
+        `)
+        .eq('workspace_id', workspaceId)
+        .in('type', [
+          'EMAIL_SENT', 
+          'EMAIL_OPENED', 
+          'EMAIL_CLICKED', 
+          'EMAIL_BOUNCED', 
+          'EMAIL_FAILED', 
+          'EMAIL_SUPPRESSED', 
+          'EMAIL_SPAM', 
+          'EMAIL_BLOCKED',
+          'EMAIL_UNSUBSCRIBED',
+          'REPLY'
+        ])
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+      return data || [];
+    } catch (err) {
+      console.error('Error fetching email logs:', err);
+      return [];
     }
   }
 }

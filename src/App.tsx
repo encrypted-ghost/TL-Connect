@@ -27,8 +27,9 @@ import { useEffect } from 'react';
 
 import { DomainManagement } from '@/src/components/domains/DomainManagement';
 import { SettingsView } from '@/src/components/settings/SettingsView';
+import { EmailLogsView } from '@/src/components/logs/EmailLogsView';
 
-type View = 'dashboard' | 'leads' | 'campaigns' | 'templates' | 'inbox' | 'domains' | 'automations' | 'settings';
+type View = 'dashboard' | 'leads' | 'campaigns' | 'templates' | 'logs' | 'inbox' | 'domains' | 'automations' | 'settings';
 
 export default function App() {
   const { user, profile, loading, logout } = useAuth();
@@ -79,7 +80,7 @@ export default function App() {
 
   const handleAction = (action: string, payload?: any) => {
     // Basic navigation
-    if (['dashboard', 'leads', 'campaigns', 'templates', 'inbox', 'domains', 'automations', 'settings'].includes(action)) {
+    if (['dashboard', 'leads', 'campaigns', 'templates', 'logs', 'inbox', 'domains', 'automations', 'settings'].includes(action)) {
       setCurrentView(action as View);
       setMobileMenuOpen(false);
       
@@ -175,6 +176,12 @@ export default function App() {
             label="Blueprints" 
             active={currentView === 'templates'} 
             onClick={() => handleAction('templates')} 
+          />
+          <SidebarNavButton 
+            icon={<ActivityIcon size={16} />} 
+            label="Dispatch Logs" 
+            active={currentView === 'logs'} 
+            onClick={() => handleAction('logs')} 
           />
           <SidebarNavButton 
             icon={<Mail size={16} />} 
@@ -321,6 +328,7 @@ function ViewRenderer({ view, stats, onAction, onImportCSV }: ViewRendererProps)
     case 'leads': return <LeadsView onImportCSV={onImportCSV} />;
     case 'campaigns': return <CampaignsView />;
     case 'templates': return <TemplatesView />;
+    case 'logs': return <EmailLogsView />;
     case 'inbox': return <InboxView onAction={onAction} />;
     case 'domains': return <DomainManagement />;
     case 'automations': return <AutomationsView onAction={onAction} />;
@@ -419,15 +427,18 @@ function DashboardView({ stats, onAction }: { stats: any, onAction: (action: str
 
 function LeadsView({ onImportCSV }: { onImportCSV?: () => void }) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [leads, setLeads] = useState([]);
+  const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
   const fetchLeads = async () => {
+    setLoading(true);
     try {
       const res = await apiClient.get('/leads');
-      setLeads(res.data);
+      setLeads(res.data || []);
     } catch (err) {
       console.error('Failed to fetch leads');
+      toast.error('Failed to load leads');
     } finally {
       setLoading(false);
     }
@@ -448,12 +459,22 @@ function LeadsView({ onImportCSV }: { onImportCSV?: () => void }) {
     fetchLeads();
   }, []);
 
+  const categories = ['ALL', 'Outbound', 'Inbound', 'Cold Outreach', 'Enterprise', 'SMB', 'VIP', 'Partner'];
+  const filteredLeads = selectedCategory === 'ALL' 
+    ? leads 
+    : leads.filter(l => (l.category || 'Outbound') === selectedCategory);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold tracking-tight">Leads</h2>
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-white">Lead Matrix</h2>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            Prospect database with category classification, company intelligence, and direct messaging.
+          </p>
+        </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={fetchLeads}>
+          <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={fetchLeads} disabled={loading}>
             Refresh
           </Button>
           <Button variant="outline" size="sm" className="gap-2" onClick={onImportCSV}>
@@ -466,11 +487,11 @@ function LeadsView({ onImportCSV }: { onImportCSV?: () => void }) {
                 <Plus size={14} /> Add Lead
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto bg-[#09090b] border-[#27272a] text-white">
               <DialogHeader className="px-1">
-                <DialogTitle>Add New Lead</DialogTitle>
-                <DialogDescription>
-                  Enter the details of the lead you'd like to reach out to.
+                <DialogTitle>Add New Prospect</DialogTitle>
+                <DialogDescription className="text-xs text-neutral-400">
+                  Enter prospect contact, company name, and audience category.
                 </DialogDescription>
               </DialogHeader>
               <LeadForm 
@@ -485,12 +506,46 @@ function LeadsView({ onImportCSV }: { onImportCSV?: () => void }) {
         </div>
       </div>
 
+      {/* Category Filter Pills */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        {categories.map(cat => {
+          const count = cat === 'ALL' ? leads.length : leads.filter(l => (l.category || 'Outbound') === cat).length;
+          return (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                selectedCategory === cat
+                  ? 'bg-indigo-600 text-white shadow-[0_0_10px_rgba(99,102,241,0.3)]'
+                  : 'bg-[#111114] text-neutral-400 hover:text-white border border-[#27272a]'
+              }`}
+            >
+              <span>{cat === 'ALL' ? 'All Leads' : cat}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${selectedCategory === cat ? 'bg-white/20 text-white' : 'bg-[#1e1e24] text-neutral-500'}`}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {loading ? (
         <div className="h-64 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
         </div>
+      ) : filteredLeads.length > 0 ? (
+        <LeadsTable 
+          leads={filteredLeads} 
+          onDelete={handleDeleteLead} 
+          onAddLead={() => setIsAddModalOpen(true)} 
+          onRefresh={fetchLeads}
+        />
       ) : leads.length > 0 ? (
-        <LeadsTable leads={leads} onDelete={handleDeleteLead} onAddLead={() => setIsAddModalOpen(true)} />
+        <div className="flex flex-col items-center justify-center h-48 border border-dashed border-[#27272a] rounded-2xl bg-[#09090b]/50 text-center px-4">
+          <Users size={32} className="text-neutral-600 mb-2" />
+          <h3 className="text-sm font-bold text-neutral-300">No leads in "{selectedCategory}"</h3>
+          <p className="text-xs text-neutral-500 mt-1">Select another category or add a new lead with this category.</p>
+        </div>
       ) : (
         <EmptyState 
           icon={<Users size={48} className="text-neutral-600" />}

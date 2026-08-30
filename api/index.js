@@ -80,14 +80,38 @@ var init_activity_service = __esm({
         if (error) throw error;
         return activity;
       }
-      static async getWorkspaceActivity(workspaceId, limit = 10) {
+      static async getWorkspaceActivity(workspaceId, limit = 20) {
         try {
           const { data, error } = await supabaseAdmin.from("activities").select("*").eq("workspace_id", workspaceId).order("created_at", { ascending: false }).limit(limit);
           if (error) throw error;
-          return data;
+          return data || [];
         } catch (err) {
           console.error("Error fetching activity:", err);
-          throw err;
+          return [];
+        }
+      }
+      static async getEmailLogs(workspaceId, limit = 100) {
+        try {
+          const { data, error } = await supabaseAdmin.from("activities").select(`
+          *,
+          lead:leads(first_name, last_name, email, company_name, category)
+        `).eq("workspace_id", workspaceId).in("type", [
+            "EMAIL_SENT",
+            "EMAIL_OPENED",
+            "EMAIL_CLICKED",
+            "EMAIL_BOUNCED",
+            "EMAIL_FAILED",
+            "EMAIL_SUPPRESSED",
+            "EMAIL_SPAM",
+            "EMAIL_BLOCKED",
+            "EMAIL_UNSUBSCRIBED",
+            "REPLY"
+          ]).order("created_at", { ascending: false }).limit(limit);
+          if (error) throw error;
+          return data || [];
+        } catch (err) {
+          console.error("Error fetching email logs:", err);
+          return [];
         }
       }
     };
@@ -1082,7 +1106,7 @@ var QueueService = class {
 // src/modules/campaigns/campaign.service.ts
 var CampaignService = class {
   static async getCampaigns(workspaceId) {
-    const { data, error } = await supabaseAdmin.from("campaigns").select("*, template:templates(name)").eq("workspace_id", workspaceId).order("created_at", { ascending: false });
+    const { data, error } = await supabaseAdmin.from("campaigns").select("*, template:templates(name, subject)").eq("workspace_id", workspaceId).order("created_at", { ascending: false });
     if (error) throw error;
     return data;
   }
@@ -1091,6 +1115,9 @@ var CampaignService = class {
       name: data.name,
       template_id: data.templateId || data.template_id,
       workspace_id: workspaceId,
+      target_category: data.targetCategory || data.target_category || null,
+      target_status: data.targetStatus || data.target_status || null,
+      provider_id: data.providerId || data.provider_id || null,
       status: "DRAFT"
     }).select().single();
     if (error) throw error;
@@ -1100,8 +1127,18 @@ var CampaignService = class {
     const { data: campaign, error: cError } = await supabaseAdmin.from("campaigns").select("*, template:templates(*)").eq("id", campaignId).eq("workspace_id", workspaceId).single();
     if (cError || !campaign) throw new Error("Campaign not found");
     if (!campaign.template) throw new Error("Campaign has no template");
-    const { data: leads, error: lError } = await supabaseAdmin.from("leads").select("id, email, first_name, last_name").eq("workspace_id", workspaceId).eq("is_deleted", false);
+    let query = supabaseAdmin.from("leads").select("id, email, first_name, last_name, company_name, category, status").eq("workspace_id", workspaceId).eq("is_deleted", false);
+    if (campaign.target_category && campaign.target_category !== "ALL") {
+      query = query.eq("category", campaign.target_category);
+    }
+    if (campaign.target_status && campaign.target_status !== "ALL") {
+      query = query.eq("status", campaign.target_status);
+    }
+    const { data: leads, error: lError } = await query;
     if (lError) throw lError;
+    if (!leads || leads.length === 0) {
+      throw new Error("No leads matched the audience filter for this campaign.");
+    }
     const { data: unsubscribed } = await supabaseAdmin.from("unsubscribes").select("email").eq("workspace_id", workspaceId);
     const unsubscribedEmails = new Set((unsubscribed || []).map((u) => u.email.toLowerCase().trim()));
     const { error: uError } = await supabaseAdmin.from("campaigns").update({
@@ -1111,7 +1148,7 @@ var CampaignService = class {
     }).eq("id", campaignId);
     if (uError) throw uError;
     const template = campaign.template;
-    const appUrl = process.env.APP_URL || "http://localhost:3000";
+    const appUrl = process.env.APP_URL || "https://connect.transferlegacy.com";
     const fromEmail = process.env.SENDER_EMAIL || "outreach@transferlegacy.com";
     const fromName = process.env.SENDER_NAME || "Transfer Legacy";
     try {
@@ -1123,14 +1160,16 @@ var CampaignService = class {
     } catch (err) {
       console.warn("[CampaignService] Inngest event trigger warning, using fallback queue:", err);
     }
+    let enqueuedCount = 0;
     for (const lead of leads || []) {
       if (unsubscribedEmails.has(lead.email.toLowerCase().trim())) {
         continue;
       }
       let html = template.body_html || "";
-      html = html.replace(/\{\{first_name\}\}/g, lead.first_name || "there");
-      html = html.replace(/\{\{last_name\}\}/g, lead.last_name || "");
-      html = html.replace(/\{\{email\}\}/g, lead.email);
+      html = html.replace(/\{\{first_name\}\}/gi, lead.first_name || "there");
+      html = html.replace(/\{\{last_name\}\}/gi, lead.last_name || "");
+      html = html.replace(/\{\{company\}\}/gi, lead.company_name || "your company");
+      html = html.replace(/\{\{email\}\}/gi, lead.email);
       const unsubscribeLink = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(lead.email)}&workspaceId=${workspaceId}`;
       const unsubscribeFooter = `
         <br/><br/>
@@ -1151,8 +1190,9 @@ var CampaignService = class {
         subject: template.subject || "Outreach",
         html
       });
+      enqueuedCount++;
     }
-    return campaign;
+    return { ...campaign, enqueuedCount };
   }
   static async stopCampaign(campaignId, workspaceId) {
     const { data: campaign, error } = await supabaseAdmin.from("campaigns").update({
@@ -1407,60 +1447,88 @@ var TemplateService = class {
 init_supabaseAdmin();
 var LeadService = class {
   static async getLeads(workspaceId, options = {}) {
-    const { status, search, limit = 50, offset = 0 } = options;
+    const { status, category, search, limit = 100, offset = 0 } = options;
     let query = supabaseAdmin.from("leads").select(`
         *,
         company:companies(name, industry),
         owner:users(name, avatar_url),
         tags:lead_tags(tag:tags(*))
       `).eq("workspace_id", workspaceId).eq("is_deleted", false).range(offset, offset + limit - 1);
-    if (status) query = query.eq("status", status);
+    if (status && status !== "ALL") query = query.eq("status", status);
+    if (category && category !== "ALL") query = query.eq("category", category);
     if (search) {
-      query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%`);
+      query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,company_name.ilike.%${search}%`);
     }
     const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return data;
+    return data || [];
   }
   static async createLead(workspaceId, data) {
+    const rawCompanyName = (data.companyName || data.company_name || data.company || "").trim();
+    let companyId = data.companyId || data.company_id || null;
+    if (rawCompanyName && !companyId) {
+      try {
+        const { data: existingCompany } = await supabaseAdmin.from("companies").select("id").eq("workspace_id", workspaceId).ilike("name", rawCompanyName).maybeSingle();
+        if (existingCompany) {
+          companyId = existingCompany.id;
+        } else {
+          const { data: newCompany } = await supabaseAdmin.from("companies").insert([{
+            name: rawCompanyName,
+            workspace_id: workspaceId
+          }]).select("id").single();
+          if (newCompany) {
+            companyId = newCompany.id;
+          }
+        }
+      } catch (err) {
+        console.warn("[LeadService] Company lookup/creation warning:", err);
+      }
+    }
     const formattedData = {
-      email: data.email,
-      first_name: data.firstName,
-      last_name: data.lastName,
-      title: data.title,
-      phone: data.phone,
-      linkedin_url: data.linkedinUrl,
+      email: data.email?.toLowerCase()?.trim(),
+      first_name: data.firstName || data.first_name || "",
+      last_name: data.lastName || data.last_name || "",
+      title: data.title || "",
+      phone: data.phone || "",
+      linkedin_url: data.linkedinUrl || data.linkedin_url || "",
+      company_name: rawCompanyName || null,
+      company_id: companyId,
+      category: data.category || "Outbound",
       status: data.status || "NEW",
-      company_id: data.companyId,
-      owner_id: data.ownerId,
-      custom_fields: data.customFields
+      owner_id: data.ownerId || data.owner_id || null,
+      custom_fields: data.customFields || data.custom_fields || {}
     };
-    const { data: existing, error: fetchError } = await supabaseAdmin.from("leads").select("id, is_deleted").eq("email", data.email).eq("workspace_id", workspaceId).maybeSingle();
+    const { data: existing, error: fetchError } = await supabaseAdmin.from("leads").select("id, is_deleted").eq("email", formattedData.email).eq("workspace_id", workspaceId).maybeSingle();
     if (existing) {
       if (existing.is_deleted) {
-        const { data: restored, error: restError } = await supabaseAdmin.from("leads").update({ ...formattedData, is_deleted: false }).eq("id", existing.id).select().single();
+        const { data: restored, error: restError } = await supabaseAdmin.from("leads").update({ ...formattedData, is_deleted: false, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", existing.id).select().single();
         if (restError) throw new Error(restError.message);
         return restored;
       }
-      throw new Error("Lead already exists");
+      throw new Error("Lead with this email already exists in this workspace");
     }
     const { data: newLead, error: insertError } = await supabaseAdmin.from("leads").insert([{ ...formattedData, workspace_id: workspaceId }]).select().single();
     if (insertError) throw new Error(insertError.message);
     return newLead;
   }
   static async bulkCreateLeads(workspaceId, leads) {
-    const formattedLeads = leads.map((lead) => ({
-      email: lead.email,
-      first_name: lead.firstName || lead.first_name,
-      last_name: lead.lastName || lead.last_name,
-      title: lead.title,
-      phone: lead.phone,
-      linkedin_url: lead.linkedinUrl || lead.linkedin_url,
-      workspace_id: workspaceId,
-      custom_fields: lead.customFields || lead.custom_fields || {},
-      status: lead.status || "NEW",
-      is_deleted: false
-    }));
+    const formattedLeads = leads.map((lead) => {
+      const companyName = (lead.companyName || lead.company_name || lead.company || "").trim();
+      return {
+        email: (lead.email || "").toLowerCase().trim(),
+        first_name: lead.firstName || lead.first_name || "",
+        last_name: lead.lastName || lead.last_name || "",
+        title: lead.title || "",
+        phone: lead.phone || "",
+        linkedin_url: lead.linkedinUrl || lead.linkedin_url || "",
+        company_name: companyName || null,
+        category: lead.category || "Outbound",
+        workspace_id: workspaceId,
+        custom_fields: lead.customFields || lead.custom_fields || {},
+        status: lead.status || "NEW",
+        is_deleted: false
+      };
+    }).filter((l) => l.email);
     const { data, error } = await supabaseAdmin.from("leads").upsert(formattedLeads, {
       onConflict: "email,workspace_id",
       ignoreDuplicates: false
@@ -1469,9 +1537,64 @@ var LeadService = class {
     return data;
   }
   static async deleteLead(id, workspace_id) {
-    const { error } = await supabaseAdmin.from("leads").update({ is_deleted: true }).eq("id", id).eq("workspace_id", workspace_id);
+    const { error } = await supabaseAdmin.from("leads").update({ is_deleted: true, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", id).eq("workspace_id", workspace_id);
     if (error) throw new Error(error.message);
     return { success: true };
+  }
+  /**
+   * Send a direct, one-off email to a specific lead
+   */
+  static async sendDirectEmail(leadId, workspaceId, options) {
+    const { data: lead, error: leadErr } = await supabaseAdmin.from("leads").select("*").eq("id", leadId).eq("workspace_id", workspaceId).single();
+    if (leadErr || !lead) throw new Error("Lead not found");
+    const emailConfig = await EmailProviderFactory.getProviderForWorkspace(workspaceId);
+    const provider = emailConfig.provider;
+    const effectiveFromEmail = options.fromEmail || emailConfig.fromEmail || "outreach@transferlegacy.com";
+    const effectiveFromName = options.fromName || emailConfig.fromName || "TL Connect";
+    let finalHtml = options.html;
+    finalHtml = finalHtml.replace(/\{\{first_name\}\}/gi, lead.first_name || "there");
+    finalHtml = finalHtml.replace(/\{\{last_name\}\}/gi, lead.last_name || "");
+    finalHtml = finalHtml.replace(/\{\{company\}\}/gi, lead.company_name || "your company");
+    finalHtml = finalHtml.replace(/\{\{email\}\}/gi, lead.email);
+    const sendResult = await provider.send({
+      toEmail: lead.email,
+      fromEmail: effectiveFromEmail,
+      fromName: effectiveFromName,
+      subject: options.subject,
+      html: finalHtml,
+      text: finalHtml.replace(/<[^>]*>?/gm, ""),
+      metadata: {
+        leadId: lead.id,
+        workspaceId,
+        directSend: true,
+        provider: emailConfig.providerType
+      }
+    });
+    if (!sendResult.success) {
+      await supabaseAdmin.from("activities").insert({
+        type: "EMAIL_FAILED",
+        description: `Direct email to ${lead.email} failed: ${sendResult.error || "Unknown error"}`,
+        metadata: { leadId: lead.id, error: sendResult.error, provider: emailConfig.providerType, subject: options.subject },
+        lead_id: lead.id,
+        workspace_id: workspaceId
+      });
+      throw new Error(sendResult.error || "Failed to dispatch email");
+    }
+    await supabaseAdmin.from("activities").insert({
+      type: "EMAIL_SENT",
+      description: `Direct email sent to ${lead.email} via ${emailConfig.providerType}`,
+      metadata: {
+        leadId: lead.id,
+        provider: emailConfig.providerType,
+        messageId: sendResult.messageId,
+        subject: options.subject,
+        direct: true
+      },
+      lead_id: lead.id,
+      workspace_id: workspaceId
+    });
+    await supabaseAdmin.from("leads").update({ status: "CONTACTED", updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", lead.id);
+    return { success: true, messageId: sendResult.messageId, provider: emailConfig.providerType };
   }
 };
 
@@ -2014,6 +2137,24 @@ async function createApp() {
       res.status(500).json({ error: e.message });
     }
   });
+  api.post("/leads/:id/send-email", requirePermission(PERMISSIONS.CAMPAIGNS_EDIT), async (req, res) => {
+    try {
+      const { subject, html, fromName, fromEmail, providerId } = req.body;
+      if (!subject || !html) {
+        return res.status(400).json({ error: "Subject and HTML content are required" });
+      }
+      const result = await LeadService.sendDirectEmail(req.params.id, req.user.workspaceId, {
+        subject,
+        html,
+        fromName,
+        fromEmail,
+        providerId
+      });
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message || "Failed to send direct email" });
+    }
+  });
   api.get("/auth/me", async (req, res) => {
     res.json(req.user);
   });
@@ -2124,6 +2265,15 @@ async function createApp() {
     try {
       const { ActivityService: ActivityService2 } = await Promise.resolve().then(() => (init_activity_service(), activity_service_exports));
       const data = await ActivityService2.getWorkspaceActivity(req.user.workspaceId);
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  api.get("/logs/emails", requirePermission(PERMISSIONS.ANALYTICS_VIEW), async (req, res) => {
+    try {
+      const { ActivityService: ActivityService2 } = await Promise.resolve().then(() => (init_activity_service(), activity_service_exports));
+      const data = await ActivityService2.getEmailLogs(req.user.workspaceId, Number(req.query.limit) || 100);
       res.json(data);
     } catch (e) {
       res.status(500).json({ error: e.message });

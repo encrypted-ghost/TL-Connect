@@ -6,7 +6,7 @@ export class CampaignService {
   static async getCampaigns(workspaceId: string) {
     const { data, error } = await supabaseAdmin
       .from('campaigns')
-      .select('*, template:templates(name)')
+      .select('*, template:templates(name, subject)')
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: false });
 
@@ -21,6 +21,9 @@ export class CampaignService {
         name: data.name,
         template_id: data.templateId || data.template_id,
         workspace_id: workspaceId,
+        target_category: data.targetCategory || data.target_category || null,
+        target_status: data.targetStatus || data.target_status || null,
+        provider_id: data.providerId || data.provider_id || null,
         status: 'DRAFT'
       })
       .select()
@@ -42,14 +45,27 @@ export class CampaignService {
     if (cError || !campaign) throw new Error('Campaign not found');
     if (!campaign.template) throw new Error('Campaign has no template');
 
-    // 2. Fetch all active leads for this workspace
-    const { data: leads, error: lError } = await supabaseAdmin
+    // 2. Fetch targeted leads for this workspace
+    let query = supabaseAdmin
       .from('leads')
-      .select('id, email, first_name, last_name')
+      .select('id, email, first_name, last_name, company_name, category, status')
       .eq('workspace_id', workspaceId)
       .eq('is_deleted', false);
-    
+
+    // Apply audience filters if configured
+    if (campaign.target_category && campaign.target_category !== 'ALL') {
+      query = query.eq('category', campaign.target_category);
+    }
+    if (campaign.target_status && campaign.target_status !== 'ALL') {
+      query = query.eq('status', campaign.target_status);
+    }
+
+    const { data: leads, error: lError } = await query;
     if (lError) throw lError;
+
+    if (!leads || leads.length === 0) {
+      throw new Error('No leads matched the audience filter for this campaign.');
+    }
 
     // 3. Fetch unsubscribed emails for this workspace to pre-filter
     const { data: unsubscribed } = await supabaseAdmin
@@ -73,7 +89,7 @@ export class CampaignService {
 
     // 5. Enqueue SEND_EMAIL jobs & Trigger Inngest Event Workflow
     const template = campaign.template as any;
-    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const appUrl = process.env.APP_URL || 'https://connect.transferlegacy.com';
     const fromEmail = process.env.SENDER_EMAIL || 'outreach@transferlegacy.com';
     const fromName = process.env.SENDER_NAME || 'Transfer Legacy';
 
@@ -88,17 +104,18 @@ export class CampaignService {
       console.warn('[CampaignService] Inngest event trigger warning, using fallback queue:', err);
     }
 
+    let enqueuedCount = 0;
     for (const lead of (leads || [])) {
       if (unsubscribedEmails.has(lead.email.toLowerCase().trim())) {
-        // Skip enqueuing if unsubscribed (pre-filter)
         continue;
       }
 
-      // Basic body rendering
+      // Variable interpolation
       let html = template.body_html || '';
-      html = html.replace(/\{\{first_name\}\}/g, lead.first_name || 'there');
-      html = html.replace(/\{\{last_name\}\}/g, lead.last_name || '');
-      html = html.replace(/\{\{email\}\}/g, lead.email);
+      html = html.replace(/\{\{first_name\}\}/gi, lead.first_name || 'there');
+      html = html.replace(/\{\{last_name\}\}/gi, lead.last_name || '');
+      html = html.replace(/\{\{company\}\}/gi, lead.company_name || 'your company');
+      html = html.replace(/\{\{email\}\}/gi, lead.email);
 
       // Append unsubscribe footer
       const unsubscribeLink = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(lead.email)}&workspaceId=${workspaceId}`;
@@ -122,9 +139,10 @@ export class CampaignService {
         subject: template.subject || 'Outreach',
         html
       });
+      enqueuedCount++;
     }
 
-    return campaign;
+    return { ...campaign, enqueuedCount };
   }
 
   static async stopCampaign(campaignId: string, workspaceId: string) {

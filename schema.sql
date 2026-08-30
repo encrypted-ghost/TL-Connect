@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS leads (
     title TEXT,
     phone TEXT,
     linkedin_url TEXT,
+    company_name TEXT,
+    category TEXT NOT NULL DEFAULT 'Outbound', -- 'Outbound', 'Inbound', 'Cold Outreach', 'Enterprise', 'SMB', 'Partner', 'VIP'
     status TEXT NOT NULL DEFAULT 'NEW',
     score INTEGER NOT NULL DEFAULT 0,
     company_id TEXT REFERENCES companies(id) ON DELETE SET NULL,
@@ -80,6 +82,10 @@ CREATE TABLE IF NOT EXISTS leads (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(email, workspace_id)
 );
+
+-- Ensure columns exist if table was already created
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS company_name TEXT;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'Outbound';
 
 -- 6. Tags & Lead Tags
 CREATE TABLE IF NOT EXISTS tags (
@@ -116,6 +122,9 @@ CREATE TABLE IF NOT EXISTS campaigns (
     status TEXT NOT NULL DEFAULT 'DRAFT',
     template_id TEXT REFERENCES templates(id) ON DELETE SET NULL,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    target_category TEXT,  -- Filter: 'ALL', 'Outbound', 'Enterprise', etc.
+    target_status TEXT,    -- Filter: 'ALL', 'NEW', 'QUALIFIED', etc.
+    provider_id TEXT,      -- Specific provider or NULL for default
     started_at TIMESTAMP WITH TIME ZONE,
     completed_at TIMESTAMP WITH TIME ZONE,
     stats_sent INTEGER NOT NULL DEFAULT 0,
@@ -126,6 +135,11 @@ CREATE TABLE IF NOT EXISTS campaigns (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Ensure columns exist if table was already created
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS target_category TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS target_status TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS provider_id TEXT;
 
 -- 9. Email Providers (Multi-Provider Engine)
 CREATE TABLE IF NOT EXISTS email_providers (

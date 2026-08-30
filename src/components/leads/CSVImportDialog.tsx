@@ -69,15 +69,16 @@ export function CSVImportDialog({ isOpen, onOpenChange, onSuccess }: CSVImportDi
       complete: async (results) => {
         try {
           const leads = results.data.map((row: any) => ({
-            email: row.email || row.Email,
-            firstName: row.firstName || row.first_name || row['First Name'],
-            lastName: row.lastName || row.last_name || row['Last Name'],
-            title: row.title || row.Title || row.job_title,
-            companyName: row.company || row.CompanyName || row['Company Name'],
-            phoneNumber: row.phone || row.phoneNumber || row['Phone Number'],
-            websiteUrl: row.website || row.websiteUrl || row.Website,
+            email: row.email || row.Email || row['E-mail'] || row['EMAIL'],
+            firstName: row.firstName || row.first_name || row['First Name'] || row['FirstName'] || (row.Name ? row.Name.split(' ')[0] : ''),
+            lastName: row.lastName || row.last_name || row['Last Name'] || row['LastName'] || (row.Name ? row.Name.split(' ').slice(1).join(' ') : ''),
+            title: row.title || row.Title || row.job_title || row['Job Title'],
+            companyName: row.company || row.companyName || row.company_name || row.CompanyName || row['Company Name'] || row['Company'] || row['Organization'],
+            category: row.category || row.Category || row.segment || row['Category'] || 'Outbound',
+            phone: row.phone || row.phoneNumber || row['Phone Number'] || row.Phone,
+            linkedinUrl: row.linkedin || row.linkedinUrl || row.linkedin_url || row['LinkedIn'] || row['Linkedin URL'],
             notes: row.notes || row.Notes
-          })).filter(l => l.email);
+          })).filter((l: any) => l.email);
 
           if (leads.length === 0) {
             toast.error('No valid leads found in CSV (email is required)');
